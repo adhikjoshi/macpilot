@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+MacPilot.app/
+*.xcodeproj/
+xcuserdata/
+.DS_Store
+Package.resolved
