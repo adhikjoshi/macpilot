@@ -63,22 +63,49 @@ private func displayService() -> io_service_t? {
 }
 
 private func getBrightness() -> Float? {
-    guard let service = displayService() else { return nil }
-    defer { IOObjectRelease(service) }
-
-    var brightness: Float = 0
-    let status = IODisplayGetFloatParameter(service, 0, kIODisplayBrightnessKey as CFString, &brightness)
-    guard status == KERN_SUCCESS else { return nil }
-    return min(max(brightness, 0), 1)
+    // Try IOKit first
+    if let service = displayService() {
+        defer { IOObjectRelease(service) }
+        var brightness: Float = 0
+        let status = IODisplayGetFloatParameter(service, 0, kIODisplayBrightnessKey as CFString, &brightness)
+        if status == KERN_SUCCESS {
+            return min(max(brightness, 0), 1)
+        }
+    }
+    // Fallback: CoreBrightness SPI
+    if let handle = dlopen("/System/Library/PrivateFrameworks/CoreBrightness.framework/CoreBrightness", RTLD_LAZY) {
+        typealias GetBrightnessFunc = @convention(c) () -> Float
+        if let sym = dlsym(handle, "SLSGetDisplayBrightness") {
+            let fn = unsafeBitCast(sym, to: GetBrightnessFunc.self)
+            let val = fn()
+            dlclose(handle)
+            return val
+        }
+        dlclose(handle)
+    }
+    return nil
 }
 
 private func setBrightness(_ value: Float) -> Bool {
-    guard let service = displayService() else { return false }
-    defer { IOObjectRelease(service) }
-
     let clamped = min(max(value, 0), 1)
-    let status = IODisplaySetFloatParameter(service, 0, kIODisplayBrightnessKey as CFString, clamped)
-    return status == KERN_SUCCESS
+    // Try IOKit first
+    if let service = displayService() {
+        defer { IOObjectRelease(service) }
+        let status = IODisplaySetFloatParameter(service, 0, kIODisplayBrightnessKey as CFString, clamped)
+        if status == KERN_SUCCESS { return true }
+    }
+    // Fallback: CoreBrightness SPI
+    if let handle = dlopen("/System/Library/PrivateFrameworks/CoreBrightness.framework/CoreBrightness", RTLD_LAZY) {
+        typealias SetBrightnessFunc = @convention(c) (Float) -> Void
+        if let sym = dlsym(handle, "SLSSetDisplayBrightness") {
+            let fn = unsafeBitCast(sym, to: SetBrightnessFunc.self)
+            fn(clamped)
+            dlclose(handle)
+            return true
+        }
+        dlclose(handle)
+    }
+    return false
 }
 
 private func dockAutohideEnabled() -> Bool? {

@@ -6,7 +6,7 @@ struct Chrome: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "chrome",
         abstract: "Chrome browser shortcuts",
-        subcommands: [ChromeOpenURL.self, ChromeNewTab.self, ChromeExtensions.self, ChromeDevMode.self, ChromeListTabs.self]
+        subcommands: [ChromeOpenURL.self, ChromeNewTab.self, ChromeCloseTab.self, ChromeExtensions.self, ChromeDevMode.self, ChromeListTabs.self]
     )
 }
 
@@ -115,6 +115,18 @@ struct ChromeNewTab: ParsableCommand {
         usleep(100_000)
         KeyboardController.pressCombo("return")
         JSONOutput.print(["status": "ok", "message": "Opened \(url) in new Chrome tab"], json: json)
+    }
+}
+
+struct ChromeCloseTab: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "close-tab", abstract: "Close current Chrome tab (Cmd+W)")
+
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        try focusChrome(json: json)
+        KeyboardController.pressCombo("cmd+w")
+        JSONOutput.print(["status": "ok", "message": "Closed current Chrome tab"], json: json)
     }
 }
 
