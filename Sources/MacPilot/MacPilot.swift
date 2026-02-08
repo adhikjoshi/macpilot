@@ -16,6 +16,7 @@ struct MacPilot: ParsableCommand {
             Scroll.self,
             TypeText.self,
             Key.self,
+            Keyboard.self,
             Screenshot.self,
             UI.self,
             App.self,

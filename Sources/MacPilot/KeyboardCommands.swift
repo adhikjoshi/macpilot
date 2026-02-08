@@ -3,6 +3,14 @@ import CoreGraphics
 import Foundation
 import Carbon.HIToolbox
 
+struct Keyboard: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "keyboard",
+        abstract: "Keyboard actions",
+        subcommands: [TypeText.self, Key.self, Shortcut.self]
+    )
+}
+
 struct TypeText: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "type", abstract: "Type text string")
 
@@ -19,6 +27,18 @@ struct Key: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "key", abstract: "Press key combo (e.g. cmd+c, enter)")
 
     @Argument(help: "Key combo like cmd+c, shift+enter, etc.") var combo: String
+    @Flag(name: .long) var json = false
+
+    func run() {
+        KeyboardController.pressCombo(combo)
+        JSONOutput.print(["status": "ok", "message": "Pressed \(combo)"], json: json)
+    }
+}
+
+struct Shortcut: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "shortcut", abstract: "Press keyboard shortcut combo")
+
+    @Argument(help: "Shortcut combo like cmd+c, cmd+shift+v, etc.") var combo: String
     @Flag(name: .long) var json = false
 
     func run() {
