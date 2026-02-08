@@ -29,7 +29,7 @@ if [ ! -x "$MP" ]; then
 fi
 
 out=$($MP --version 2>&1)
-assert_contains "version" "$out" "0.4.0"
+assert_contains "version" "$out" "0.5.0"
 
 out=$($MP ax-check --json 2>&1)
 assert_contains "ax-check returns JSON" "$out" '"status" : "ok"'
@@ -43,6 +43,15 @@ assert_contains "window focus graceful missing app" "$out" "App not running"
 
 out=$($MP run --json 2>&1) || true
 assert_contains "run bundle guidance" "$out" "build-app.sh"
+
+out=$($MP app launch "__not_a_real_app__" --json 2>&1) || true
+assert_contains "app launch json parsing" "$out" "\"status\""
+
+out=$($MP app frontmost --json 2>&1) || true
+assert_contains "app frontmost json parsing" "$out" "\"status\""
+
+out=$($MP chrome list-tabs --json 2>&1) || true
+assert_contains "chrome list-tabs json parsing" "$out" "\"status\""
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

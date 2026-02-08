@@ -10,6 +10,7 @@ struct Click: ParsableCommand {
     @Flag(name: .long, help: "Output as JSON") var json = false
 
     func run() {
+        flashIndicatorIfRunning()
         MouseController.click(x: x, y: y)
         JSONOutput.print(["status": "ok", "message": "Clicked at \(Int(x)),\(Int(y))"], json: json)
     }
@@ -23,6 +24,7 @@ struct DoubleClick: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() {
+        flashIndicatorIfRunning()
         MouseController.doubleClick(x: x, y: y)
         JSONOutput.print(["status": "ok", "message": "Double-clicked at \(Int(x)),\(Int(y))"], json: json)
     }
@@ -36,6 +38,7 @@ struct RightClick: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() {
+        flashIndicatorIfRunning()
         MouseController.rightClick(x: x, y: y)
         JSONOutput.print(["status": "ok", "message": "Right-clicked at \(Int(x)),\(Int(y))"], json: json)
     }
@@ -49,6 +52,7 @@ struct Move: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() {
+        flashIndicatorIfRunning()
         MouseController.move(x: x, y: y)
         JSONOutput.print(["status": "ok", "message": "Moved to \(Int(x)),\(Int(y))"], json: json)
     }
@@ -64,6 +68,7 @@ struct Drag: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() {
+        flashIndicatorIfRunning()
         MouseController.drag(fromX: x1, fromY: y1, toX: x2, toY: y2)
         JSONOutput.print(["status": "ok", "message": "Dragged from \(Int(x1)),\(Int(y1)) to \(Int(x2)),\(Int(y2))"], json: json)
     }
@@ -77,6 +82,7 @@ struct Scroll: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() {
+        flashIndicatorIfRunning()
         MouseController.scroll(direction: direction, amount: amount)
         JSONOutput.print(["status": "ok", "message": "Scrolled \(direction) by \(amount)"], json: json)
     }

@@ -234,6 +234,7 @@ struct WindowFocus: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
         runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
 
         guard let (_, _, windows) = getAppWindows(resolvedApp) else {
@@ -316,6 +317,7 @@ struct WindowNew: ParsableCommand {
         }
 
         let appName = runningApp.localizedName ?? app
+        flashIndicatorIfRunning()
         runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
 
         let escapedName = appName.replacingOccurrences(of: "\"", with: "\\\"")
@@ -374,6 +376,7 @@ struct WindowResize: ParsableCommand {
             JSONOutput.error("No windows found for \(resolvedApp)", json: json)
             throw ExitCode.failure
         }
+        flashIndicatorIfRunning()
         setSize(win, width: resolvedWidth, height: resolvedHeight)
         JSONOutput.print(["status": "ok", "message": "Resized \(resolvedApp) to \(Int(resolvedWidth))x\(Int(resolvedHeight))"], json: json)
     }
@@ -405,6 +408,7 @@ struct WindowMove: ParsableCommand {
             JSONOutput.error("No windows found for \(resolvedApp)", json: json)
             throw ExitCode.failure
         }
+        flashIndicatorIfRunning()
         setPosition(win, x: resolvedX, y: resolvedY)
         JSONOutput.print(["status": "ok", "message": "Moved \(resolvedApp) to (\(Int(resolvedX)),\(Int(resolvedY)))"], json: json)
     }
@@ -428,6 +432,7 @@ struct WindowClose: ParsableCommand {
             throw ExitCode.failure
         }
         let button = buttonVal as! AXUIElement
+        flashIndicatorIfRunning()
         AXUIElementPerformAction(button, kAXPressAction as CFString)
         JSONOutput.print(["status": "ok", "message": "Closed \(app) window"], json: json)
     }
@@ -450,6 +455,7 @@ struct WindowMinimize: ParsableCommand {
             JSONOutput.error("No windows found for \(resolvedApp)", json: json)
             throw ExitCode.failure
         }
+        flashIndicatorIfRunning()
         var buttonVal: AnyObject?
         guard AXUIElementCopyAttributeValue(win, kAXMinimizeButtonAttribute as CFString, &buttonVal) == .success else {
             // Fallback: set minimized attribute directly
@@ -486,6 +492,7 @@ struct WindowFullscreen: ParsableCommand {
         if AXUIElementCopyAttributeValue(win, "AXFullScreen" as CFString, &value) == .success {
             isFullscreen = (value as? Bool) ?? false
         }
+        flashIndicatorIfRunning()
         AXUIElementSetAttributeValue(win, "AXFullScreen" as CFString, (!isFullscreen) as CFBoolean)
         let state = !isFullscreen ? "entered" : "exited"
         JSONOutput.print(["status": "ok", "message": "\(resolvedApp) \(state) fullscreen"], json: json)
