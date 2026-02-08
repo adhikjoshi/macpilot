@@ -1,5 +1,69 @@
 # AGENTS.md
 
+## ⚠️ CRITICAL: Validate → Act → Verify Pattern
+
+**NEVER fire a MacPilot command without checking state first. NEVER assume the previous step worked.**
+
+Every MacPilot operation MUST follow this 3-step pattern:
+
+### 1. PRE-CHECK (Validate)
+Before any action, check the current state:
+- `window list --json` → What windows are open? Which is frontmost?
+- `app list --json` → Is the target app running?
+- `screenshot` → What does the screen actually look like?
+
+### 2. ACT (Execute)
+Run your command only after confirming preconditions are met.
+
+### 3. POST-CHECK (Verify)
+After the action, verify it worked:
+- `window list --json` → Did focus change? Did the window move/resize?
+- `screenshot` → Does the screen show what we expect?
+- Check exit code + JSON output for errors
+
+### Examples
+
+**BAD (fire and pray):**
+```bash
+MacPilot app open Safari
+MacPilot chain "cmd+l" "type:https://google.com" "return"
+MacPilot screenshot --output /tmp/result.png
+```
+
+**GOOD (validate → act → verify):**
+```bash
+# PRE-CHECK: Is Safari already running?
+MacPilot app list --json | grep Safari
+
+# ACT: Open Safari
+MacPilot app open Safari --json
+sleep 2
+
+# POST-CHECK: Is Safari now frontmost?
+MacPilot window list --json  # verify Safari window exists and is focused
+
+# PRE-CHECK: Confirm Safari is focused before typing
+MacPilot window focus Safari --json
+
+# ACT: Navigate
+MacPilot chain "cmd+l" "type:https://google.com" "return" --json
+sleep 3
+
+# POST-CHECK: Verify with screenshot
+MacPilot screenshot --output /tmp/result.png --json
+# Verify screenshot shows Google, not wallpaper
+```
+
+### Rules for Multi-Step Operations
+1. **One app at a time.** Don't open 5 apps and try to control them all. Finish with one, then move to the next.
+2. **Always confirm focus.** Before typing/clicking in an app, run `window focus <app>` and verify.
+3. **Sleep after app launches.** Apps need 2-3 seconds to fully load. Don't type into nothing.
+4. **Clean up after yourself.** Close apps/tabs you opened for testing.
+5. **Check window list before window operations.** Don't try to resize a window that doesn't exist.
+6. **Screenshot to verify visual state.** When CLI output isn't enough, take a screenshot and check.
+
+---
+
 ## Project overview
 MacPilot is a Swift command-line tool for macOS automation. It exposes mouse, keyboard, window, app, UI Accessibility, Space/desktop, screenshot, shell, and orchestration commands so scripts/agents can control macOS reliably.
 
