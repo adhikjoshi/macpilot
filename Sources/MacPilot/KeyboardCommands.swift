@@ -17,7 +17,8 @@ struct TypeText: ParsableCommand {
     @Argument(help: "Text to type") var text: String
     @Flag(name: .long) var json = false
 
-    func run() {
+    func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "keyboard typing")
         KeyboardController.typeText(text)
         JSONOutput.print(["status": "ok", "message": "Typed \(text.count) characters"], json: json)
     }
@@ -29,7 +30,8 @@ struct Key: ParsableCommand {
     @Argument(help: "Key combo like cmd+c, shift+enter, etc.") var combo: String
     @Flag(name: .long) var json = false
 
-    func run() {
+    func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "keyboard shortcuts")
         KeyboardController.pressCombo(combo)
         JSONOutput.print(["status": "ok", "message": "Pressed \(combo)"], json: json)
     }
@@ -41,7 +43,8 @@ struct Shortcut: ParsableCommand {
     @Argument(help: "Shortcut combo like cmd+c, cmd+shift+v, etc.") var combo: String
     @Flag(name: .long) var json = false
 
-    func run() {
+    func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "keyboard shortcuts")
         KeyboardController.pressCombo(combo)
         JSONOutput.print(["status": "ok", "message": "Pressed \(combo)"], json: json)
     }

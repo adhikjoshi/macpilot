@@ -66,4 +66,22 @@ final class MacPilotTests: XCTestCase {
         XCTAssertNotEqual(result.exitCode, 0)
         XCTAssertTrue(result.stdout.contains("App not running"))
     }
+
+    func testAppLaunchSupportsJSONFlag() throws {
+        let result = try runMacPilot(["app", "launch", "__definitely_missing_app__", "--json"], expectSuccess: false)
+        XCTAssertNotEqual(result.exitCode, 64, "Parser rejected --json for app launch")
+        XCTAssertTrue(result.stdout.contains("\"status\""))
+    }
+
+    func testAppFrontmostSupportsJSONFlag() throws {
+        let result = try runMacPilot(["app", "frontmost", "--json"], expectSuccess: false)
+        XCTAssertNotEqual(result.exitCode, 64, "Parser rejected --json for app frontmost")
+        XCTAssertTrue(result.stdout.contains("\"status\""))
+    }
+
+    func testChromeListTabsSupportsJSONFlag() throws {
+        let result = try runMacPilot(["chrome", "list-tabs", "--json"], expectSuccess: false)
+        XCTAssertNotEqual(result.exitCode, 64, "Parser rejected --json for chrome list-tabs")
+        XCTAssertTrue(result.stdout.contains("\"status\""))
+    }
 }

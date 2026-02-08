@@ -62,6 +62,8 @@ struct ShellInteractive: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "interactive Terminal automation")
+
         // Open Terminal.app
         let script = "tell application \"Terminal\" to do script \"\(command.replacingOccurrences(of: "\"", with: "\\\""))\""
         let task = Process()
@@ -69,6 +71,10 @@ struct ShellInteractive: ParsableCommand {
         task.arguments = ["-e", script]
         try task.run()
         task.waitUntilExit()
+        if task.terminationStatus != 0 {
+            JSONOutput.error("Failed to open Terminal interactive session", json: json)
+            throw ExitCode.failure
+        }
 
         // Activate Terminal
         let activateScript = "tell application \"Terminal\" to activate"
@@ -77,6 +83,10 @@ struct ShellInteractive: ParsableCommand {
         task2.arguments = ["-e", activateScript]
         try task2.run()
         task2.waitUntilExit()
+        if task2.terminationStatus != 0 {
+            JSONOutput.error("Failed to activate Terminal", json: json)
+            throw ExitCode.failure
+        }
 
         JSONOutput.print(["status": "ok", "message": "Opened Terminal with command"], json: json)
     }
@@ -89,6 +99,8 @@ struct ShellType: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "terminal typing")
+
         // Focus Terminal
         let apps = NSWorkspace.shared.runningApplications
         if let terminal = apps.first(where: { $0.bundleIdentifier == "com.apple.Terminal" }) {
@@ -107,6 +119,8 @@ struct ShellPaste: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "terminal paste")
+
         // Save current clipboard
         let pb = NSPasteboard.general
         let oldText = pb.string(forType: .string)

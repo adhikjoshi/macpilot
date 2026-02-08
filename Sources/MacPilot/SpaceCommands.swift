@@ -86,6 +86,8 @@ struct SpaceSwitch: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "Space switching")
+
         let resolvedDirection = direction ?? target.flatMap { value in
             let lowered = value.lowercased()
             return (lowered == "left" || lowered == "right") ? lowered : nil

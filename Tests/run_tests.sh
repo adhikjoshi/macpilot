@@ -44,6 +44,15 @@ assert_contains "window focus graceful missing app" "$out" "App not running"
 out=$($MP run --json 2>&1) || true
 assert_contains "run bundle guidance" "$out" "build-app.sh"
 
+out=$($MP app launch "__not_a_real_app__" --json 2>&1) || true
+assert_contains "app launch json parsing" "$out" "\"status\""
+
+out=$($MP app frontmost --json 2>&1) || true
+assert_contains "app frontmost json parsing" "$out" "\"status\""
+
+out=$($MP chrome list-tabs --json 2>&1) || true
+assert_contains "chrome list-tabs json parsing" "$out" "\"status\""
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 [ "$FAIL" -eq 0 ] && exit 0 || exit 1

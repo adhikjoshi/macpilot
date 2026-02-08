@@ -89,10 +89,78 @@ private func ensureWindowExists(for app: NSRunningApplication, appName: String) 
     }
 }
 
+private func openApp(named name: String, json: Bool) throws {
+    let config = NSWorkspace.OpenConfiguration()
+    let semaphore = DispatchSemaphore(value: 0)
+    var openError: Error?
+
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let looksLikeBundleID = trimmed.contains(".") && !trimmed.contains("/") && !trimmed.contains(" ")
+
+    var attempts: [String] = []
+    var appURL: URL?
+
+    if looksLikeBundleID {
+        attempts.append("bundle-id lookup")
+        appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed)
+    }
+
+    if appURL == nil {
+        attempts.append("name lookup")
+        appURL = findAppURL(trimmed)
+    }
+
+    guard let url = appURL else {
+        JSONOutput.error(
+            "App not found: \(name). Tried: \(attempts.joined(separator: ", "))",
+            json: json
+        )
+        throw ExitCode.failure
+    }
+
+    NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
+        openError = error
+        semaphore.signal()
+    }
+    semaphore.wait()
+
+    if let error = openError {
+        JSONOutput.error("Failed to open \(name): \(error.localizedDescription)", json: json)
+        throw ExitCode.failure
+    }
+
+    let bundleID = Bundle(url: url)?.bundleIdentifier
+    let runningApp = bundleID
+        .flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0).first }
+        ?? NSWorkspace.shared.runningApplications.first(where: {
+            $0.localizedName?.localizedCaseInsensitiveContains(trimmed) == true
+        })
+
+    if let runningApp {
+        ensureWindowExists(for: runningApp, appName: runningApp.localizedName ?? trimmed)
+    }
+
+    JSONOutput.print([
+        "status": "ok",
+        "message": "Opened \(name)",
+        "appPath": url.path,
+    ], json: json)
+}
+
+private func focusApp(named name: String, json: Bool) throws {
+    let apps = NSWorkspace.shared.runningApplications
+    guard let app = apps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(name) == true }) else {
+        JSONOutput.error("App not running: \(name)", json: json)
+        throw ExitCode.failure
+    }
+    app.activate()
+    JSONOutput.print(["status": "ok", "message": "Focused \(app.localizedName ?? name)"], json: json)
+}
+
 struct App: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "App management",
-        subcommands: [AppOpen.self, AppFocus.self, AppList.self, AppQuit.self]
+        subcommands: [AppOpen.self, AppLaunch.self, AppFocus.self, AppActivate.self, AppFrontmost.self, AppList.self, AppQuit.self]
     )
 }
 
@@ -103,61 +171,18 @@ struct AppOpen: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
-        let config = NSWorkspace.OpenConfiguration()
-        let semaphore = DispatchSemaphore(value: 0)
-        var openError: Error?
+        try openApp(named: name, json: json)
+    }
+}
 
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let looksLikeBundleID = trimmed.contains(".") && !trimmed.contains("/") && !trimmed.contains(" ")
+struct AppLaunch: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "launch", abstract: "Launch an application (alias for open)")
 
-        var attempts: [String] = []
-        var appURL: URL?
+    @Argument(help: "App name or bundle identifier") var name: String
+    @Flag(name: .long) var json = false
 
-        if looksLikeBundleID {
-            attempts.append("bundle-id lookup")
-            appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed)
-        }
-
-        if appURL == nil {
-            attempts.append("name lookup")
-            appURL = findAppURL(trimmed)
-        }
-
-        guard let url = appURL else {
-            JSONOutput.error(
-                "App not found: \(name). Tried: \(attempts.joined(separator: ", "))",
-                json: json
-            )
-            throw ExitCode.failure
-        }
-
-        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
-            openError = error
-            semaphore.signal()
-        }
-        semaphore.wait()
-
-        if let error = openError {
-            JSONOutput.error("Failed to open \(name): \(error.localizedDescription)", json: json)
-            throw ExitCode.failure
-        }
-
-        let bundleID = Bundle(url: url)?.bundleIdentifier
-        let runningApp = bundleID
-            .flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0).first }
-            ?? NSWorkspace.shared.runningApplications.first(where: {
-                $0.localizedName?.localizedCaseInsensitiveContains(trimmed) == true
-            })
-
-        if let runningApp {
-            ensureWindowExists(for: runningApp, appName: runningApp.localizedName ?? trimmed)
-        }
-
-        JSONOutput.print([
-            "status": "ok",
-            "message": "Opened \(name)",
-            "appPath": url.path,
-        ], json: json)
+    func run() throws {
+        try openApp(named: name, json: json)
     }
 }
 
@@ -168,13 +193,40 @@ struct AppFocus: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
-        let apps = NSWorkspace.shared.runningApplications
-        guard let app = apps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(name) == true }) else {
-            JSONOutput.error("App not running: \(name)", json: json)
+        try focusApp(named: name, json: json)
+    }
+}
+
+struct AppActivate: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "activate", abstract: "Activate an app (alias for focus)")
+
+    @Argument(help: "App name") var name: String
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        try focusApp(named: name, json: json)
+    }
+}
+
+struct AppFrontmost: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "frontmost", abstract: "Show the frontmost app")
+
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let name = app.localizedName else {
+            JSONOutput.error("No frontmost app", json: json)
             throw ExitCode.failure
         }
-        app.activate()
-        JSONOutput.print(["status": "ok", "message": "Focused \(app.localizedName ?? name)"], json: json)
+
+        JSONOutput.print([
+            "status": "ok",
+            "message": "Frontmost app: \(name)",
+            "name": name,
+            "pid": app.processIdentifier,
+            "bundleId": app.bundleIdentifier ?? "",
+        ], json: json)
     }
 }
 
