@@ -99,11 +99,24 @@ struct AppQuit: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        // Safety check
+        if let reason = Safety.validateQuit(appName: name) {
+            JSONOutput.error(reason, json: json)
+            throw ExitCode.failure
+        }
+
         let apps = NSWorkspace.shared.runningApplications
         guard let app = apps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(name) == true }) else {
             JSONOutput.error("App not running: \(name)", json: json)
             throw ExitCode.failure
         }
+
+        // Double-check with resolved name
+        if let resolvedName = app.localizedName, let reason = Safety.validateQuit(appName: resolvedName) {
+            JSONOutput.error(reason, json: json)
+            throw ExitCode.failure
+        }
+
         if force {
             app.forceTerminate()
         } else {

@@ -9,10 +9,14 @@ struct Screenshot: ParsableCommand {
     @Option(name: .long, help: "Region as x,y,width,height") var region: String?
     @Option(name: .long, help: "Window name to capture") var window: String?
     @Option(name: .shortAndLong, help: "Output file path") var output: String?
+    @Flag(name: .long, help: "Capture ALL windows including other Spaces") var allWindows = false
+    @Option(name: .long, help: "Display index (0-based)") var display: UInt32?
     @Flag(name: .long) var json = false
 
     func run() throws {
         let image: CGImage?
+
+        let listOption: CGWindowListOption = allWindows ? .optionAll : .optionOnScreenOnly
 
         if let region = region {
             let parts = region.split(separator: ",").compactMap { Double($0) }
@@ -21,11 +25,23 @@ struct Screenshot: ParsableCommand {
                 throw ExitCode.failure
             }
             let rect = CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
-            image = CGWindowListCreateImage(rect, .optionOnScreenOnly, kCGNullWindowID, .bestResolution)
+            image = CGWindowListCreateImage(rect, listOption, kCGNullWindowID, .bestResolution)
         } else if let windowName = window {
             image = captureWindow(named: windowName)
+        } else if let displayIndex = display {
+            // Capture specific display
+            var displayIDs = [CGDirectDisplayID](repeating: 0, count: 8)
+            var displayCount: UInt32 = 0
+            CGGetActiveDisplayList(8, &displayIDs, &displayCount)
+            guard displayIndex < displayCount else {
+                JSONOutput.error("Display \(displayIndex) not found (have \(displayCount))", json: json)
+                throw ExitCode.failure
+            }
+            let displayID = displayIDs[Int(displayIndex)]
+            let bounds = CGDisplayBounds(displayID)
+            image = CGWindowListCreateImage(bounds, listOption, kCGNullWindowID, .bestResolution)
         } else {
-            image = CGWindowListCreateImage(.null, .optionOnScreenOnly, kCGNullWindowID, .bestResolution)
+            image = CGWindowListCreateImage(.null, listOption, kCGNullWindowID, .bestResolution)
         }
 
         guard let cgImage = image else {
