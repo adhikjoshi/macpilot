@@ -110,7 +110,7 @@ struct UITree: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "tree", abstract: "Print accessibility tree")
 
     @Option(name: .long) var app: String?
-    @Option(name: .long) var depth: Int = 5
+    @Option(name: [.long, .customLong("max-depth")]) var depth: Int = 5
     @Flag(name: .long) var json = false
 
     func run() throws {

@@ -142,21 +142,28 @@ struct WindowList: ParsableCommand {
 struct WindowFocus: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "focus", abstract: "Focus and raise a window")
 
-    @Option(name: .long, help: "App name") var app: String
+    @Argument(help: "App name (positional)") var appName: String?
+    @Option(name: .long, help: "App name") var app: String?
     @Option(name: .long, help: "Optional window title substring") var title: String?
     @Flag(name: .long) var json = false
 
     func run() throws {
+        let resolvedApp = app ?? appName
+        guard let resolvedApp else {
+            JSONOutput.error("Provide app name as positional arg or --app", json: json)
+            throw ExitCode.failure
+        }
+
         let runningApps = NSWorkspace.shared.runningApplications
-        guard let runningApp = runningApps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(app) == true }) else {
-            JSONOutput.error("App not running: \(app)", json: json)
+        guard let runningApp = runningApps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(resolvedApp) == true }) else {
+            JSONOutput.error("App not running: \(resolvedApp)", json: json)
             throw ExitCode.failure
         }
 
         runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
 
-        guard let (_, _, windows) = getAppWindows(app) else {
-            JSONOutput.error("No windows found for \(app)", json: json)
+        guard let (_, _, windows) = getAppWindows(resolvedApp) else {
+            JSONOutput.error("No windows found for \(resolvedApp)", json: json)
             throw ExitCode.failure
         }
 
@@ -169,7 +176,7 @@ struct WindowFocus: ParsableCommand {
         }()
 
         guard let window = selectedWindow else {
-            JSONOutput.error("No matching window found for app '\(app)' title '\(title ?? "")'", json: json)
+            JSONOutput.error("No matching window found for app '\(resolvedApp)' title '\(title ?? "")'", json: json)
             throw ExitCode.failure
         }
 
@@ -182,8 +189,8 @@ struct WindowFocus: ParsableCommand {
         let resolvedTitle = getAttr(window, kAXTitleAttribute) ?? ""
         JSONOutput.print([
             "status": "ok",
-            "message": "Focused window '\(resolvedTitle)' in \(runningApp.localizedName ?? app)",
-            "app": runningApp.localizedName ?? app,
+            "message": "Focused window '\(resolvedTitle)' in \(runningApp.localizedName ?? resolvedApp)",
+            "app": runningApp.localizedName ?? resolvedApp,
             "title": resolvedTitle,
         ], json: json)
     }
@@ -192,36 +199,62 @@ struct WindowFocus: ParsableCommand {
 struct WindowResize: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "resize", abstract: "Resize window")
 
-    @Option(name: .long, help: "App name") var app: String
-    @Option(name: .long) var width: Double
-    @Option(name: .long) var height: Double
+    @Argument(help: "App name (positional)") var appName: String?
+    @Argument(help: "Width (positional)") var positionalWidth: Double?
+    @Argument(help: "Height (positional)") var positionalHeight: Double?
+    @Option(name: .long, help: "App name") var app: String?
+    @Option(name: .long) var width: Double?
+    @Option(name: .long) var height: Double?
     @Flag(name: .long) var json = false
 
     func run() throws {
-        guard let (_, _, windows) = getAppWindows(app), let win = windows.first else {
-            JSONOutput.error("No windows found for \(app)", json: json)
+        guard let resolvedApp = app ?? appName else {
+            JSONOutput.error("Provide app name as positional arg or --app", json: json)
             throw ExitCode.failure
         }
-        setSize(win, width: width, height: height)
-        JSONOutput.print(["status": "ok", "message": "Resized \(app) to \(Int(width))x\(Int(height))"], json: json)
+        guard let resolvedWidth = width ?? positionalWidth,
+              let resolvedHeight = height ?? positionalHeight else {
+            JSONOutput.error("Provide width/height as positional args or --width/--height", json: json)
+            throw ExitCode.failure
+        }
+
+        guard let (_, _, windows) = getAppWindows(resolvedApp), let win = windows.first else {
+            JSONOutput.error("No windows found for \(resolvedApp)", json: json)
+            throw ExitCode.failure
+        }
+        setSize(win, width: resolvedWidth, height: resolvedHeight)
+        JSONOutput.print(["status": "ok", "message": "Resized \(resolvedApp) to \(Int(resolvedWidth))x\(Int(resolvedHeight))"], json: json)
     }
 }
 
 struct WindowMove: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "move", abstract: "Move window")
 
-    @Option(name: .long, help: "App name") var app: String
-    @Option(name: .long) var x: Double
-    @Option(name: .long) var y: Double
+    @Argument(help: "App name (positional)") var appName: String?
+    @Argument(help: "X position (positional)") var positionalX: Double?
+    @Argument(help: "Y position (positional)") var positionalY: Double?
+    @Option(name: .long, help: "App name") var app: String?
+    @Option(name: .long) var x: Double?
+    @Option(name: .long) var y: Double?
     @Flag(name: .long) var json = false
 
     func run() throws {
-        guard let (_, _, windows) = getAppWindows(app), let win = windows.first else {
-            JSONOutput.error("No windows found for \(app)", json: json)
+        guard let resolvedApp = app ?? appName else {
+            JSONOutput.error("Provide app name as positional arg or --app", json: json)
             throw ExitCode.failure
         }
-        setPosition(win, x: x, y: y)
-        JSONOutput.print(["status": "ok", "message": "Moved \(app) to (\(Int(x)),\(Int(y)))"], json: json)
+        guard let resolvedX = x ?? positionalX,
+              let resolvedY = y ?? positionalY else {
+            JSONOutput.error("Provide x/y as positional args or --x/--y", json: json)
+            throw ExitCode.failure
+        }
+
+        guard let (_, _, windows) = getAppWindows(resolvedApp), let win = windows.first else {
+            JSONOutput.error("No windows found for \(resolvedApp)", json: json)
+            throw ExitCode.failure
+        }
+        setPosition(win, x: resolvedX, y: resolvedY)
+        JSONOutput.print(["status": "ok", "message": "Moved \(resolvedApp) to (\(Int(resolvedX)),\(Int(resolvedY)))"], json: json)
     }
 }
 
@@ -251,36 +284,48 @@ struct WindowClose: ParsableCommand {
 struct WindowMinimize: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "minimize", abstract: "Minimize window")
 
-    @Option(name: .long, help: "App name") var app: String
+    @Argument(help: "App name (positional)") var appName: String?
+    @Option(name: .long, help: "App name") var app: String?
     @Flag(name: .long) var json = false
 
     func run() throws {
-        guard let (_, _, windows) = getAppWindows(app), let win = windows.first else {
-            JSONOutput.error("No windows found for \(app)", json: json)
+        guard let resolvedApp = app ?? appName else {
+            JSONOutput.error("Provide app name as positional arg or --app", json: json)
+            throw ExitCode.failure
+        }
+
+        guard let (_, _, windows) = getAppWindows(resolvedApp), let win = windows.first else {
+            JSONOutput.error("No windows found for \(resolvedApp)", json: json)
             throw ExitCode.failure
         }
         var buttonVal: AnyObject?
         guard AXUIElementCopyAttributeValue(win, kAXMinimizeButtonAttribute as CFString, &buttonVal) == .success else {
             // Fallback: set minimized attribute directly
             AXUIElementSetAttributeValue(win, kAXMinimizedAttribute as CFString, true as CFBoolean)
-            JSONOutput.print(["status": "ok", "message": "Minimized \(app)"], json: json)
+            JSONOutput.print(["status": "ok", "message": "Minimized \(resolvedApp)"], json: json)
             return
         }
         let button = buttonVal as! AXUIElement
         AXUIElementPerformAction(button, kAXPressAction as CFString)
-        JSONOutput.print(["status": "ok", "message": "Minimized \(app)"], json: json)
+        JSONOutput.print(["status": "ok", "message": "Minimized \(resolvedApp)"], json: json)
     }
 }
 
 struct WindowFullscreen: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "fullscreen", abstract: "Toggle fullscreen")
 
-    @Option(name: .long, help: "App name") var app: String
+    @Argument(help: "App name (positional)") var appName: String?
+    @Option(name: .long, help: "App name") var app: String?
     @Flag(name: .long) var json = false
 
     func run() throws {
-        guard let (_, _, windows) = getAppWindows(app), let win = windows.first else {
-            JSONOutput.error("No windows found for \(app)", json: json)
+        guard let resolvedApp = app ?? appName else {
+            JSONOutput.error("Provide app name as positional arg or --app", json: json)
+            throw ExitCode.failure
+        }
+
+        guard let (_, _, windows) = getAppWindows(resolvedApp), let win = windows.first else {
+            JSONOutput.error("No windows found for \(resolvedApp)", json: json)
             throw ExitCode.failure
         }
         // Toggle AXFullScreen attribute
@@ -291,6 +336,6 @@ struct WindowFullscreen: ParsableCommand {
         }
         AXUIElementSetAttributeValue(win, "AXFullScreen" as CFString, (!isFullscreen) as CFBoolean)
         let state = !isFullscreen ? "entered" : "exited"
-        JSONOutput.print(["status": "ok", "message": "\(app) \(state) fullscreen"], json: json)
+        JSONOutput.print(["status": "ok", "message": "\(resolvedApp) \(state) fullscreen"], json: json)
     }
 }

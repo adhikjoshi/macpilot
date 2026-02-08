@@ -80,12 +80,19 @@ struct SpaceList: ParsableCommand {
 struct SpaceSwitch: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "switch", abstract: "Switch to Space N or left/right")
 
+    @Argument(help: "Direction (left/right) or index (1-9)") var target: String?
     @Option(name: .long, help: "Space index (1-based)") var index: Int?
     @Option(name: .long, help: "Direction: left or right") var direction: String?
     @Flag(name: .long) var json = false
 
     func run() throws {
-        if let dir = direction {
+        let resolvedDirection = direction ?? target.flatMap { value in
+            let lowered = value.lowercased()
+            return (lowered == "left" || lowered == "right") ? lowered : nil
+        }
+        let resolvedIndex = index ?? target.flatMap { Int($0) }
+
+        if let dir = resolvedDirection {
             // Use Ctrl+Left/Right arrow — these are system shortcuts
             // Try AppleScript approach which is more reliable for system shortcuts
             let keyCode: String
@@ -128,8 +135,8 @@ struct SpaceSwitch: ParsableCommand {
             return
         }
 
-        guard let index = index, index >= 1 && index <= 9 else {
-            JSONOutput.error("Provide --index (1-9) or --direction (left/right)", json: json)
+        guard let index = resolvedIndex, index >= 1 && index <= 9 else {
+            JSONOutput.error("Provide positional target (left/right or 1-9), --index (1-9), or --direction (left/right)", json: json)
             throw ExitCode.failure
         }
 
