@@ -1,6 +1,93 @@
 import ArgumentParser
 import AppKit
+import ApplicationServices
 import Foundation
+
+private func appHasAXWindows(_ pid: pid_t) -> Bool {
+    let appElement = AXUIElementCreateApplication(pid)
+    var value: AnyObject?
+    guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
+          let windows = value as? [AXUIElement] else {
+        return false
+    }
+    return !windows.isEmpty
+}
+
+private func runAppleScript(_ source: String) -> Bool {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    process.arguments = ["-e", source]
+    do {
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    } catch {
+        return false
+    }
+}
+
+private func sendCommandN() {
+    guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
+    let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 55, keyDown: true)
+    let nDown = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: true)
+    let nUp = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: false)
+    let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 55, keyDown: false)
+
+    nDown?.flags = .maskCommand
+    nUp?.flags = .maskCommand
+
+    let eventTap = CGEventTapLocation.cghidEventTap
+    cmdDown?.post(tap: eventTap)
+    nDown?.post(tap: eventTap)
+    nUp?.post(tap: eventTap)
+    cmdUp?.post(tap: eventTap)
+}
+
+private func appHasVisibleWindowOnCurrentSpace(_ pid: pid_t) -> Bool {
+    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return false }
+    return windows.contains { win in
+        let layer = win[kCGWindowLayer as String] as? Int ?? -1
+        let ownerPID = win[kCGWindowOwnerPID as String] as? Int ?? 0
+        return layer == 0 && ownerPID == Int(pid)
+    }
+}
+
+private func bringAppFrontmost(_ appName: String, app: NSRunningApplication) {
+    _ = NSApplication.shared
+    NSApp?.activate(ignoringOtherApps: true)
+    app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    let escapedName = appName.replacingOccurrences(of: "\"", with: "\\\"")
+    _ = runAppleScript("tell application \"\(escapedName)\" to activate")
+    _ = runAppleScript("tell application \"System Events\" to set frontmost of process \"\(escapedName)\" to true")
+}
+
+private func ensureWindowExists(for app: NSRunningApplication, appName: String) {
+    bringAppFrontmost(appName, app: app)
+
+    let escapedName = appName.replacingOccurrences(of: "\"", with: "\\\"")
+    if !appHasAXWindows(app.processIdentifier) || !appHasVisibleWindowOnCurrentSpace(app.processIdentifier) {
+        _ = runAppleScript("tell application \"\(escapedName)\" to make new document")
+        usleep(150_000)
+        if !appHasVisibleWindowOnCurrentSpace(app.processIdentifier) {
+            sendCommandN()
+        }
+    }
+
+    let deadline = Date().addingTimeInterval(3)
+    var attemptedExtraNewWindow = false
+    while Date() < deadline {
+        let hasWindow = appHasAXWindows(app.processIdentifier)
+        let isVisible = appHasVisibleWindowOnCurrentSpace(app.processIdentifier)
+        if hasWindow && isVisible { return }
+        if !isVisible && !attemptedExtraNewWindow {
+            sendCommandN()
+            attemptedExtraNewWindow = true
+        }
+        bringAppFrontmost(appName, app: app)
+        usleep(120_000)
+    }
+}
 
 struct App: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -53,6 +140,17 @@ struct AppOpen: ParsableCommand {
         if let error = openError {
             JSONOutput.error("Failed to open \(name): \(error.localizedDescription)", json: json)
             throw ExitCode.failure
+        }
+
+        let bundleID = Bundle(url: url)?.bundleIdentifier
+        let runningApp = bundleID
+            .flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0).first }
+            ?? NSWorkspace.shared.runningApplications.first(where: {
+                $0.localizedName?.localizedCaseInsensitiveContains(trimmed) == true
+            })
+
+        if let runningApp {
+            ensureWindowExists(for: runningApp, appName: runningApp.localizedName ?? trimmed)
         }
 
         JSONOutput.print([
