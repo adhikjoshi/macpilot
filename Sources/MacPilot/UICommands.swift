@@ -174,8 +174,8 @@ struct UIClick: ParsableCommand {
         }
         let appElement = AXUIElementCreateApplication(pid)
         if let element = findElement(appElement, matching: label, depth: 8) {
-            AXUIElementPerformAction(element, kAXPressAction as CFString)
             flashIndicatorIfRunning()
+            AXUIElementPerformAction(element, kAXPressAction as CFString)
             JSONOutput.print(["status": "ok", "message": "Clicked '\(label)'"], json: json)
         } else {
             JSONOutput.error("Element '\(label)' not found", json: json)

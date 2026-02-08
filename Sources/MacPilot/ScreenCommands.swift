@@ -76,6 +76,7 @@ struct ScreenRecordStart: ParsableCommand {
             outputPath += ".mov"
         }
 
+        flashIndicatorIfRunning()
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         task.arguments = ["-v", outputPath]
@@ -102,8 +103,6 @@ struct ScreenRecordStart: ParsableCommand {
             throw ExitCode.failure
         }
 
-        flashIndicatorIfRunning()
-
         JSONOutput.print([
             "status": "ok",
             "message": "Screen recording started",
@@ -126,6 +125,7 @@ struct ScreenRecordStop: ParsableCommand {
 
         let outputPath = readScreenRecordPath()
 
+        flashIndicatorIfRunning()
         if isProcessRunning(pid) {
             _ = Darwin.kill(pid, SIGINT)
             let deadline = Date().addingTimeInterval(5.0)
@@ -138,7 +138,6 @@ struct ScreenRecordStop: ParsableCommand {
         }
 
         cleanupScreenRecordFiles()
-        flashIndicatorIfRunning()
 
         JSONOutput.print([
             "status": "ok",

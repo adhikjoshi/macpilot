@@ -58,6 +58,11 @@ enum IndicatorClient {
     }
 
     static func flashIfRunning() {
+        flashForAction()
+    }
+
+    static func flashForAction() {
+        IndicatorAutoStarter.ensureRunningIfNeeded()
         guard isRunning() else { return }
         _ = send(.flash)
     }
@@ -105,8 +110,118 @@ enum IndicatorClient {
     }
 }
 
+private enum IndicatorAutoStarter {
+    static let skipEnvironmentKey = "MACPILOT_SKIP_INDICATOR_AUTOSTART"
+
+    static func ensureRunningIfNeeded(arguments: [String] = CommandLine.arguments) {
+        guard shouldAutoStart(arguments: arguments) else { return }
+        guard !IndicatorClient.isRunning() else { return }
+        guard launchIndicatorProcess() else { return }
+
+        let deadline = Date().addingTimeInterval(1.5)
+        while Date() < deadline {
+            if IndicatorClient.isRunning() {
+                return
+            }
+            usleep(50_000)
+        }
+    }
+
+    private static func shouldAutoStart(arguments: [String]) -> Bool {
+        if ProcessInfo.processInfo.environment[skipEnvironmentKey] == "1" {
+            return false
+        }
+
+        guard arguments.count > 1 else { return false }
+        let args = Array(arguments.dropFirst())
+        if args.contains("--help") || args.contains("-h") || args.contains("--version") {
+            return false
+        }
+
+        if args.first?.lowercased() == "help" {
+            return false
+        }
+
+        if let firstCommand = args.first(where: { !$0.hasPrefix("-") })?.lowercased(),
+           firstCommand == "indicator" {
+            return false
+        }
+
+        return true
+    }
+
+    private static func launchIndicatorProcess() -> Bool {
+        guard let executablePath = resolveExecutablePath() else { return false }
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: executablePath)
+        task.arguments = ["indicator", "start"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment[skipEnvironmentKey] = "1"
+        task.environment = environment
+
+        let devNull = FileHandle(forWritingAtPath: "/dev/null")
+        task.standardOutput = devNull
+        task.standardError = devNull
+
+        do {
+            try task.run()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func resolveExecutablePath() -> String? {
+        if let bundleExecutable = Bundle.main.executablePath,
+           FileManager.default.isExecutableFile(atPath: bundleExecutable) {
+            return bundleExecutable
+        }
+
+        guard let arg0 = CommandLine.arguments.first, !arg0.isEmpty else { return nil }
+        if arg0.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: arg0) {
+            return arg0
+        }
+
+        if arg0.contains("/") {
+            let absolute = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(arg0)
+                .standardized
+                .path
+            if FileManager.default.isExecutableFile(atPath: absolute) {
+                return absolute
+            }
+        }
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        task.arguments = [arg0]
+
+        let outPipe = Pipe()
+        task.standardOutput = outPipe
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+            guard task.terminationStatus == 0 else { return nil }
+        } catch {
+            return nil
+        }
+
+        let output = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !output.isEmpty, FileManager.default.isExecutableFile(atPath: output) else { return nil }
+        return output
+    }
+}
+
+func ensureIndicatorAutoStartIfNeeded() {
+    IndicatorAutoStarter.ensureRunningIfNeeded()
+}
+
 func flashIndicatorIfRunning() {
-    IndicatorClient.flashIfRunning()
+    IndicatorClient.flashForAction()
 }
 
 private var indicatorServerController: IndicatorServerController?

@@ -19,6 +19,7 @@ struct Screenshot: ParsableCommand {
     func run() throws {
         let resolvedFormat = try resolveFormat()
         let outputPath = resolvedOutputPath(format: resolvedFormat)
+        flashIndicatorIfRunning()
 
         if allWindows {
             try captureAllWindowsViaCG(outputPath: outputPath, format: resolvedFormat)
@@ -116,8 +117,6 @@ struct Screenshot: ParsableCommand {
     private func printCaptureResult(outputPath: String) throws {
         let data = try Data(contentsOf: URL(fileURLWithPath: outputPath))
         let (width, height) = imageSize(from: data)
-
-        flashIndicatorIfRunning()
 
         if json {
             JSONOutput.print([

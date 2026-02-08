@@ -21,6 +21,7 @@ private func focusChrome(json: Bool) throws {
         throw ExitCode.failure
     }
 
+    flashIndicatorIfRunning()
     chrome.activate(options: [.activateAllWindows])
     usleep(400_000)
 }
@@ -181,6 +182,7 @@ struct ChromeListTabs: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
         let tabs: [[String: Any]]
         do {
             tabs = try listChromeTabs()

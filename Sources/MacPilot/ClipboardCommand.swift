@@ -32,10 +32,10 @@ struct ClipboardSet: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() {
+        flashIndicatorIfRunning()
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
-        flashIndicatorIfRunning()
         JSONOutput.print(["status": "ok", "message": "Clipboard set (\(text.count) chars)"], json: json)
     }
 }
@@ -58,14 +58,13 @@ struct ClipboardImage: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
         let pb = NSPasteboard.general
         pb.clearContents()
         guard pb.writeObjects([image]) else {
             JSONOutput.error("Failed to write image to clipboard", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print([
             "status": "ok",

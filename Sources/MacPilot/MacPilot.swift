@@ -44,6 +44,10 @@ struct MacPilot: ParsableCommand {
             Run.self,
         ]
     )
+
+    mutating func validate() throws {
+        ensureIndicatorAutoStartIfNeeded()
+    }
 }
 
 // MARK: - JSON Output Helper

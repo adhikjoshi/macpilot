@@ -107,6 +107,7 @@ struct ProcessKill: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
         var killed: [[String: Any]] = []
 
         for entry in matches {
@@ -132,8 +133,6 @@ struct ProcessKill: ParsableCommand {
                 "signal": signal,
             ])
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print([
             "status": "ok",

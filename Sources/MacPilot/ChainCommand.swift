@@ -36,6 +36,8 @@ struct Chain: ParsableCommand {
             try requireActiveUserSession(json: json, actionDescription: "chain keyboard actions")
         }
 
+        flashIndicatorIfRunning()
+
         var results: [[String: Any]] = []
 
         for (i, action) in parsedActions.enumerated() {
@@ -55,8 +57,6 @@ struct Chain: ParsableCommand {
                 results.append(["action": "key", "combo": combo, "status": "ok"])
             }
         }
-
-        flashIndicatorIfRunning()
 
         if json {
             JSONOutput.print(["status": "ok", "message": "Executed \(parsedActions.count) actions", "actions": results], json: true)

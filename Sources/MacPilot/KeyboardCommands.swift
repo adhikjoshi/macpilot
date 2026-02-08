@@ -15,10 +15,9 @@ private func printKeyboardResult(
     warningMessage: String,
     json: Bool
 ) {
-    flashIndicatorIfRunning()
-
+    let modalDialog = (detectErrors && result.alertSoundDetected) ? detectFrontmostModalDialog() : nil
     var payload: [String: Any] = [
-        "status": "ok",
+        "status": (detectErrors && result.alertSoundDetected) ? "warning" : "ok",
         "message": message,
     ]
 
@@ -26,6 +25,9 @@ private func printKeyboardResult(
         payload["alertSoundDetected"] = result.alertSoundDetected
         if result.alertSoundDetected {
             payload["warning"] = warningMessage
+            if let modalDialog {
+                payload["modalDialog"] = modalDialogPayload(modalDialog)
+            }
         }
     }
 
@@ -33,6 +35,14 @@ private func printKeyboardResult(
 
     if detectErrors, result.alertSoundDetected, !json {
         Swift.print(warningMessage)
+        if let modalDialog {
+            let title = modalDialog.title.isEmpty ? "Modal dialog detected" : "Modal dialog detected: \(modalDialog.title)"
+            if modalDialog.buttons.isEmpty {
+                Swift.print(title)
+            } else {
+                Swift.print("\(title) [\(modalDialog.buttons.joined(separator: ", "))]")
+            }
+        }
     }
 }
 
@@ -56,6 +66,7 @@ struct TypeText: ParsableCommand {
 
     func run() throws {
         try requireActiveUserSession(json: json, actionDescription: "keyboard typing")
+        flashIndicatorIfRunning()
         let result = KeyboardController.typeText(
             text,
             interval: max(interval, 0),
@@ -81,6 +92,7 @@ struct Key: ParsableCommand {
 
     func run() throws {
         try requireActiveUserSession(json: json, actionDescription: "keyboard shortcuts")
+        flashIndicatorIfRunning()
         let result = KeyboardController.pressCombo(
             combo,
             alertDetectionWindow: detectErrors ? KeyboardController.defaultAlertDetectionWindow : nil
@@ -105,6 +117,7 @@ struct Shortcut: ParsableCommand {
 
     func run() throws {
         try requireActiveUserSession(json: json, actionDescription: "keyboard shortcuts")
+        flashIndicatorIfRunning()
         let result = KeyboardController.pressCombo(
             combo,
             alertDetectionWindow: detectErrors ? KeyboardController.defaultAlertDetectionWindow : nil

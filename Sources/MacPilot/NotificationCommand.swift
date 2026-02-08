@@ -22,8 +22,8 @@ struct NotificationSend: ParsableCommand {
         notification.title = title
         notification.informativeText = body
 
-        NSUserNotificationCenter.default.deliver(notification)
         flashIndicatorIfRunning()
+        NSUserNotificationCenter.default.deliver(notification)
 
         JSONOutput.print([
             "status": "ok",

@@ -187,12 +187,11 @@ struct AudioVolumeSet: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
         guard setSystemVolume(value) else {
             JSONOutput.error("Failed to set system volume", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print([
             "status": "ok",
@@ -208,12 +207,11 @@ struct AudioVolumeMute: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        flashIndicatorIfRunning()
         guard setMute(true) else {
             JSONOutput.error("Failed to mute output", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print(["status": "ok", "message": "Output muted", "muted": true], json: json)
     }
@@ -225,12 +223,11 @@ struct AudioVolumeUnmute: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        flashIndicatorIfRunning()
         guard setMute(false) else {
             JSONOutput.error("Failed to unmute output", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print(["status": "ok", "message": "Output unmuted", "muted": false], json: json)
     }
@@ -290,12 +287,11 @@ struct DisplayBrightnessSet: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
         guard setBrightness(Float(value) / 100.0) else {
             JSONOutput.error("Failed to set display brightness", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print([
             "status": "ok",
@@ -319,12 +315,11 @@ struct DockShow: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        flashIndicatorIfRunning()
         guard setDockAutohide(false) else {
             JSONOutput.error("Failed to show Dock", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print(["status": "ok", "autohide": false, "message": "Dock shown"], json: json)
     }
@@ -336,12 +331,11 @@ struct DockHide: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        flashIndicatorIfRunning()
         guard setDockAutohide(true) else {
             JSONOutput.error("Failed to hide Dock", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print(["status": "ok", "autohide": true, "message": "Dock hidden (autohide enabled)"], json: json)
     }
@@ -359,12 +353,11 @@ struct DockAutohide: ParsableCommand {
         }
 
         let next = !current
+        flashIndicatorIfRunning()
         guard setDockAutohide(next) else {
             JSONOutput.error("Failed to toggle Dock autohide", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print([
             "status": "ok",
@@ -410,12 +403,11 @@ struct Appearance: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
         guard setDarkMode(target) else {
             JSONOutput.error("Failed to set appearance mode", json: json)
             throw ExitCode.failure
         }
-
-        flashIndicatorIfRunning()
 
         JSONOutput.print([
             "status": "ok",

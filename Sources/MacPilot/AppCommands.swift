@@ -90,6 +90,8 @@ private func ensureWindowExists(for app: NSRunningApplication, appName: String) 
 }
 
 private func openApp(named name: String, json: Bool) throws {
+    flashIndicatorIfRunning()
+
     let config = NSWorkspace.OpenConfiguration()
     let semaphore = DispatchSemaphore(value: 0)
     var openError: Error?
@@ -167,8 +169,6 @@ private func openApp(named name: String, json: Bool) throws {
 
     ensureWindowExists(for: runningApp, appName: runningApp.localizedName ?? trimmed)
 
-    flashIndicatorIfRunning()
-
     JSONOutput.print([
         "status": "ok",
         "message": "Opened \(name)",
@@ -182,8 +182,8 @@ private func focusApp(named name: String, json: Bool) throws {
         JSONOutput.error("App not running: \(name)", json: json)
         throw ExitCode.failure
     }
-    app.activate()
     flashIndicatorIfRunning()
+    app.activate()
     JSONOutput.print(["status": "ok", "message": "Focused \(app.localizedName ?? name)"], json: json)
 }
 
@@ -315,12 +315,12 @@ struct AppQuit: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
         if force {
             app.forceTerminate()
         } else {
             app.terminate()
         }
-        flashIndicatorIfRunning()
         JSONOutput.print(["status": "ok", "message": "Quit \(app.localizedName ?? name)"], json: json)
     }
 }
