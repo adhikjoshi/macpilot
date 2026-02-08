@@ -29,6 +29,7 @@ struct MacPilot: ParsableCommand {
             AXCheck.self,
             Chain.self,
             Chrome.self,
+            MenuBar.self,
             Run.self,
         ]
     )
