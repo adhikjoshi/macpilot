@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Build .app bundle
+        run: |
+          chmod +x scripts/build-app.sh
+          bash scripts/build-app.sh
+
+      - name: Run tests
+        run: |
+          chmod +x Tests/run_tests.sh
+          bash Tests/run_tests.sh
+
+      - name: Get version
+        id: version
+        run: echo "version=$(.build/release/MacPilot --version)" >> $GITHUB_OUTPUT
+
+      - name: Package artifacts
+        run: |
+          # Package .app as zip
+          ditto -c -k --keepParent MacPilot.app MacPilot-${{ github.ref_name }}.zip
+          # Also package standalone binary
+          cp .build/release/MacPilot MacPilot-cli-${{ github.ref_name }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MacPilot ${{ github.ref_name }}
+          body: |
+            ## MacPilot ${{ steps.version.outputs.version }}
+            
+            ### Downloads
+            - **MacPilot.app** (zip) — Full macOS app bundle with ad-hoc signature
+            - **MacPilot CLI** — Standalone binary
+            
+            ### Installation
+            1. Download `MacPilot-${{ github.ref_name }}.zip`
+            2. Unzip and move `MacPilot.app` to desired location
+            3. Grant Accessibility permission in System Settings → Privacy & Security
+          files: |
+            MacPilot-${{ github.ref_name }}.zip
+            MacPilot-cli-${{ github.ref_name }}
+          generate_release_notes: true
