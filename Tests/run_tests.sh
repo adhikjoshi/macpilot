@@ -29,7 +29,7 @@ if [ ! -x "$MP" ]; then
 fi
 
 out=$($MP --version 2>&1)
-assert_contains "version" "$out" "0.4.0"
+assert_contains "version" "$out" "0.5.0"
 
 out=$($MP ax-check --json 2>&1)
 assert_contains "ax-check returns JSON" "$out" '"status" : "ok"'

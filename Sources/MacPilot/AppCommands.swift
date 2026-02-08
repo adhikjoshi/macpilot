@@ -93,6 +93,7 @@ private func openApp(named name: String, json: Bool) throws {
     let config = NSWorkspace.OpenConfiguration()
     let semaphore = DispatchSemaphore(value: 0)
     var openError: Error?
+    let launchTimeout: TimeInterval = 5
 
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     let looksLikeBundleID = trimmed.contains(".") && !trimmed.contains("/") && !trimmed.contains(" ")
@@ -122,7 +123,21 @@ private func openApp(named name: String, json: Bool) throws {
         openError = error
         semaphore.signal()
     }
-    semaphore.wait()
+
+    let launchDeadline = Date().addingTimeInterval(launchTimeout)
+    var completedLaunchCallback = false
+    while Date() < launchDeadline {
+        if semaphore.wait(timeout: .now()) == .success {
+            completedLaunchCallback = true
+            break
+        }
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+
+    guard completedLaunchCallback else {
+        JSONOutput.error("Timed out opening \(name) after \(Int(launchTimeout)) seconds", json: json)
+        throw ExitCode.failure
+    }
 
     if let error = openError {
         JSONOutput.error("Failed to open \(name): \(error.localizedDescription)", json: json)
@@ -130,15 +145,27 @@ private func openApp(named name: String, json: Bool) throws {
     }
 
     let bundleID = Bundle(url: url)?.bundleIdentifier
-    let runningApp = bundleID
-        .flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0).first }
-        ?? NSWorkspace.shared.runningApplications.first(where: {
-            $0.localizedName?.localizedCaseInsensitiveContains(trimmed) == true
-        })
-
-    if let runningApp {
-        ensureWindowExists(for: runningApp, appName: runningApp.localizedName ?? trimmed)
+    let findRunningApp = {
+        bundleID
+            .flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0).first }
+            ?? NSWorkspace.shared.runningApplications.first(where: {
+                $0.localizedName?.localizedCaseInsensitiveContains(trimmed) == true
+            })
     }
+
+    var runningApp = findRunningApp()
+    let runningAppDeadline = Date().addingTimeInterval(launchTimeout)
+    while runningApp == nil, Date() < runningAppDeadline {
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        runningApp = findRunningApp()
+    }
+
+    guard let runningApp else {
+        JSONOutput.error("Timed out waiting for \(name) to launch after \(Int(launchTimeout)) seconds", json: json)
+        throw ExitCode.failure
+    }
+
+    ensureWindowExists(for: runningApp, appName: runningApp.localizedName ?? trimmed)
 
     JSONOutput.print([
         "status": "ok",

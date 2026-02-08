@@ -52,7 +52,7 @@ final class MacPilotTests: XCTestCase {
 
     func testVersion() throws {
         let result = try runMacPilot(["--version"])
-        XCTAssertTrue(result.stdout.contains("0.4.0"))
+        XCTAssertTrue(result.stdout.contains("0.5.0"))
     }
 
     func testWaitWindowByTitleGraceful() throws {
