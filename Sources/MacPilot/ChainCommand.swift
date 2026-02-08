@@ -56,6 +56,8 @@ struct Chain: ParsableCommand {
             }
         }
 
+        flashIndicatorIfRunning()
+
         if json {
             JSONOutput.print(["status": "ok", "message": "Executed \(parsedActions.count) actions", "actions": results], json: true)
         } else {

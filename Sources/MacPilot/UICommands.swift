@@ -5,7 +5,7 @@ import Foundation
 struct UI: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "UI element access via Accessibility API",
-        subcommands: [UIList.self, UIFind.self, UIClick.self, UITree.self]
+        subcommands: [UIList.self, UIFind.self, UIFindText.self, UIWaitFor.self, UIClick.self, UITree.self]
     )
 }
 
@@ -83,6 +83,83 @@ struct UIFind: ParsableCommand {
     }
 }
 
+struct UIFindText: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "find-text", abstract: "Find first UI element containing text")
+
+    @Argument(help: "Text to search for") var query: String
+    @Option(name: .long) var app: String?
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        guard let pid = findAppPID(app) else {
+            JSONOutput.error("App not found: \(app ?? "frontmost")", json: json)
+            throw ExitCode.failure
+        }
+        let appElement = AXUIElementCreateApplication(pid)
+        guard let element = findElement(appElement, matching: query, depth: 12) else {
+            JSONOutput.error("No elements found matching '\(query)'", json: json)
+            throw ExitCode.failure
+        }
+
+        let role = getAttr(element, kAXRoleAttribute) ?? ""
+        let title = getAttr(element, kAXTitleAttribute) ?? ""
+        let value = getAttr(element, kAXValueAttribute) ?? ""
+        let desc = getAttr(element, kAXDescriptionAttribute) ?? ""
+        let pos = getPosition(element)
+        let size = getSize(element)
+
+        let payload: [String: Any] = [
+            "status": "ok",
+            "query": query,
+            "role": role,
+            "title": title,
+            "value": value,
+            "description": desc,
+            "x": Int(pos?.x ?? 0),
+            "y": Int(pos?.y ?? 0),
+            "width": Int(size?.width ?? 0),
+            "height": Int(size?.height ?? 0),
+            "message": "Found matching element",
+        ]
+
+        if json {
+            JSONOutput.print(payload, json: true)
+        } else {
+            print("[\(role)] \(title.isEmpty ? value : title) @ (\(Int(pos?.x ?? 0)),\(Int(pos?.y ?? 0)))")
+        }
+    }
+}
+
+struct UIWaitFor: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "wait-for", abstract: "Wait for UI element text to appear")
+
+    @Argument(help: "Text to wait for") var query: String
+    @Option(name: .long, help: "App name") var app: String?
+    @Option(name: .long, help: "Timeout in seconds") var timeout: Double = 10
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let pid = findAppPID(app) {
+                let appElement = AXUIElementCreateApplication(pid)
+                if findElement(appElement, matching: query, depth: 12) != nil {
+                    JSONOutput.print([
+                        "status": "ok",
+                        "message": "Found '\(query)'",
+                        "found": true,
+                    ], json: json)
+                    return
+                }
+            }
+            usleep(200_000)
+        }
+
+        JSONOutput.error("Timeout waiting for '\(query)' after \(timeout)s", json: json)
+        throw ExitCode.failure
+    }
+}
+
 struct UIClick: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "click", abstract: "Click UI element by label")
 
@@ -98,6 +175,7 @@ struct UIClick: ParsableCommand {
         let appElement = AXUIElementCreateApplication(pid)
         if let element = findElement(appElement, matching: label, depth: 8) {
             AXUIElementPerformAction(element, kAXPressAction as CFString)
+            flashIndicatorIfRunning()
             JSONOutput.print(["status": "ok", "message": "Clicked '\(label)'"], json: json)
         } else {
             JSONOutput.error("Element '\(label)' not found", json: json)
@@ -224,7 +302,10 @@ func findElement(_ element: AXUIElement, matching query: String, depth: Int, cur
     guard current < depth else { return nil }
     let title = getAttr(element, kAXTitleAttribute) ?? ""
     let desc = getAttr(element, kAXDescriptionAttribute) ?? ""
-    if title.localizedCaseInsensitiveContains(query) || desc.localizedCaseInsensitiveContains(query) {
+    let value = getAttr(element, kAXValueAttribute) ?? ""
+    if title.localizedCaseInsensitiveContains(query) ||
+        desc.localizedCaseInsensitiveContains(query) ||
+        value.localizedCaseInsensitiveContains(query) {
         return element
     }
     if let children = getChildren(element) {

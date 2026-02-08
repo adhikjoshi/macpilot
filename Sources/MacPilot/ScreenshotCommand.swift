@@ -117,6 +117,8 @@ struct Screenshot: ParsableCommand {
         let data = try Data(contentsOf: URL(fileURLWithPath: outputPath))
         let (width, height) = imageSize(from: data)
 
+        flashIndicatorIfRunning()
+
         if json {
             JSONOutput.print([
                 "status": "ok",

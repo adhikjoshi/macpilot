@@ -121,6 +121,7 @@ struct SpaceSwitch: ParsableCommand {
             task.waitUntilExit()
 
             if task.terminationStatus == 0 {
+                flashIndicatorIfRunning()
                 JSONOutput.print(["status": "ok", "message": "Switched Space \(dir)"], json: json)
             } else {
                 // Fallback to CGEvent
@@ -132,6 +133,7 @@ struct SpaceSwitch: ParsableCommand {
                 up?.flags = .maskControl
                 down?.post(tap: .cghidEventTap)
                 up?.post(tap: .cghidEventTap)
+                flashIndicatorIfRunning()
                 JSONOutput.print(["status": "ok", "message": "Switched Space \(dir) (CGEvent fallback)"], json: json)
             }
             return
@@ -165,6 +167,7 @@ struct SpaceSwitch: ParsableCommand {
         task.waitUntilExit()
 
         if task.terminationStatus == 0 {
+            flashIndicatorIfRunning()
             JSONOutput.print(["status": "ok", "message": "Switched to Space \(index)"], json: json)
         } else {
             // Fallback to CGEvent
@@ -175,6 +178,7 @@ struct SpaceSwitch: ParsableCommand {
             up?.flags = .maskControl
             down?.post(tap: .cghidEventTap)
             up?.post(tap: .cghidEventTap)
+            flashIndicatorIfRunning()
             JSONOutput.print(["status": "ok", "message": "Switched to Space \(index) (CGEvent fallback)"], json: json)
         }
     }
@@ -295,6 +299,7 @@ struct SpaceBring: ParsableCommand {
         let msg = windows.isEmpty
             ? "Activated '\(runApp.localizedName ?? app)' (could not access windows)"
             : "Brought '\(runApp.localizedName ?? app)' to current space"
+        flashIndicatorIfRunning()
         JSONOutput.print(["status": "ok", "message": msg, "windowCount": windows.count], json: json)
     }
 }

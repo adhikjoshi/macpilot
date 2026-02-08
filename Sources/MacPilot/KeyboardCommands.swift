@@ -15,6 +15,8 @@ private func printKeyboardResult(
     warningMessage: String,
     json: Bool
 ) {
+    flashIndicatorIfRunning()
+
     var payload: [String: Any] = [
         "status": "ok",
         "message": message,

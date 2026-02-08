@@ -167,6 +167,8 @@ private func openApp(named name: String, json: Bool) throws {
 
     ensureWindowExists(for: runningApp, appName: runningApp.localizedName ?? trimmed)
 
+    flashIndicatorIfRunning()
+
     JSONOutput.print([
         "status": "ok",
         "message": "Opened \(name)",
@@ -181,6 +183,7 @@ private func focusApp(named name: String, json: Bool) throws {
         throw ExitCode.failure
     }
     app.activate()
+    flashIndicatorIfRunning()
     JSONOutput.print(["status": "ok", "message": "Focused \(app.localizedName ?? name)"], json: json)
 }
 
@@ -317,6 +320,7 @@ struct AppQuit: ParsableCommand {
         } else {
             app.terminate()
         }
+        flashIndicatorIfRunning()
         JSONOutput.print(["status": "ok", "message": "Quit \(app.localizedName ?? name)"], json: json)
     }
 }

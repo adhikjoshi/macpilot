@@ -49,6 +49,11 @@ struct ShellRun: ParsableCommand {
             if !stdout.isEmpty { print(stdout, terminator: "") }
             if !stderr.isEmpty { FileHandle.standardError.write(Data(stderr.utf8)) }
         }
+
+        if code == 0 {
+            flashIndicatorIfRunning()
+        }
+
         if code != 0 {
             throw ExitCode(Int32(code))
         }
@@ -88,6 +93,8 @@ struct ShellInteractive: ParsableCommand {
             throw ExitCode.failure
         }
 
+        flashIndicatorIfRunning()
+
         JSONOutput.print(["status": "ok", "message": "Opened Terminal with command"], json: json)
     }
 }
@@ -108,6 +115,7 @@ struct ShellType: ParsableCommand {
             usleep(300_000)
         }
         KeyboardController.typeText(text)
+        flashIndicatorIfRunning()
         JSONOutput.print(["status": "ok", "message": "Typed \(text.count) chars into terminal"], json: json)
     }
 }
@@ -145,6 +153,8 @@ struct ShellPaste: ParsableCommand {
             pb.clearContents()
             pb.setString(old, forType: .string)
         }
+
+        flashIndicatorIfRunning()
 
         JSONOutput.print(["status": "ok", "message": "Pasted \(text.count) chars into terminal"], json: json)
     }

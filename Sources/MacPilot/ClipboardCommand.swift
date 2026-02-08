@@ -5,7 +5,7 @@ import Foundation
 struct Clipboard: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Clipboard get/set",
-        subcommands: [ClipboardGet.self, ClipboardSet.self]
+        subcommands: [ClipboardGet.self, ClipboardSet.self, ClipboardImage.self]
     )
 }
 
@@ -35,6 +35,42 @@ struct ClipboardSet: ParsableCommand {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+        flashIndicatorIfRunning()
         JSONOutput.print(["status": "ok", "message": "Clipboard set (\(text.count) chars)"], json: json)
+    }
+}
+
+struct ClipboardImage: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "image", abstract: "Set clipboard image from file path")
+
+    @Argument(help: "Image file path") var path: String
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        let resolvedPath = URL(fileURLWithPath: path).standardized.path
+        guard FileManager.default.fileExists(atPath: resolvedPath) else {
+            JSONOutput.error("Image file not found: \(resolvedPath)", json: json)
+            throw ExitCode.failure
+        }
+
+        guard let image = NSImage(contentsOfFile: resolvedPath) else {
+            JSONOutput.error("Failed to load image: \(resolvedPath)", json: json)
+            throw ExitCode.failure
+        }
+
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        guard pb.writeObjects([image]) else {
+            JSONOutput.error("Failed to write image to clipboard", json: json)
+            throw ExitCode.failure
+        }
+
+        flashIndicatorIfRunning()
+
+        JSONOutput.print([
+            "status": "ok",
+            "message": "Clipboard image set",
+            "path": resolvedPath,
+        ], json: json)
     }
 }

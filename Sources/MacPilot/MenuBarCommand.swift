@@ -32,6 +32,8 @@ private final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDe
 
     private let versionItem = NSMenuItem(title: "Version v0.5.0", action: nil, keyEquivalent: "")
     private let quitItem = NSMenuItem(title: "Quit", action: #selector(quitMenuBar), keyEquivalent: "q")
+    private var iconAnimationTimer: Timer?
+    private var activeIconPhase = false
 
     override init() {
         super.init()
@@ -40,10 +42,17 @@ private final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDe
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureStatusItemButton()
+        startIconAnimationTimer()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        iconAnimationTimer?.invalidate()
+        iconAnimationTimer = nil
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         refreshPermissionStatus()
+        updateStatusIcon()
     }
 
     private func buildMenu() {
@@ -85,17 +94,44 @@ private final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDe
 
     private func configureStatusItemButton() {
         guard let button = statusItem.button else { return }
-        if let image = NSImage(systemSymbolName: "command.circle.fill", accessibilityDescription: "MacPilot") {
-            image.isTemplate = true
-            button.image = image
-        } else {
-            button.title = "MP"
-        }
-
         button.toolTip = "MacPilot"
         button.target = self
         button.action = #selector(showMenu(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        updateStatusIcon()
+    }
+
+    private func startIconAnimationTimer() {
+        iconAnimationTimer?.invalidate()
+        iconAnimationTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
+            self?.updateStatusIcon()
+        }
+    }
+
+    private func updateStatusIcon() {
+        guard let button = statusItem.button else { return }
+
+        let indicatorActive = IndicatorClient.isRunning()
+        if indicatorActive {
+            activeIconPhase.toggle()
+            let symbolName = activeIconPhase ? "record.circle.fill" : "record.circle"
+            if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "MacPilot Active") {
+                image.isTemplate = false
+                button.image = image
+                button.contentTintColor = NSColor.systemTeal
+            } else {
+                button.title = "MP*"
+            }
+            return
+        }
+
+        if let image = NSImage(systemSymbolName: "command.circle.fill", accessibilityDescription: "MacPilot") {
+            image.isTemplate = true
+            button.image = image
+            button.contentTintColor = nil
+        } else {
+            button.title = "MP"
+        }
     }
 
     @objc private func showMenu(_ sender: Any?) {
@@ -227,19 +263,139 @@ private final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDe
     }
 }
 
+private func axStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
+    var value: AnyObject?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+    return value as? String
+}
+
+private func axElementAttribute(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
+    var value: AnyObject?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+    return value as! AXUIElement?
+}
+
+private func axChildren(_ element: AXUIElement) -> [AXUIElement] {
+    var value: AnyObject?
+    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success else {
+        return []
+    }
+    return value as? [AXUIElement] ?? []
+}
+
+private func menuItemMatches(_ element: AXUIElement, query: String) -> Bool {
+    let title = axStringAttribute(element, kAXTitleAttribute) ?? ""
+    return title.localizedCaseInsensitiveContains(query)
+}
+
+private func findMenuItem(in container: AXUIElement, query: String) -> AXUIElement? {
+    for child in axChildren(container) where menuItemMatches(child, query: query) {
+        return child
+    }
+    return nil
+}
+
+private func launchMenuBarController() {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+
+    let controller = MenuBarController()
+    menuBarController = controller
+    app.delegate = controller
+    app.run()
+}
+
+private func clickMenuBarPath(appName: String, menuPath: String, json: Bool) throws {
+    guard let app = NSWorkspace.shared.runningApplications.first(where: {
+        $0.localizedName?.localizedCaseInsensitiveContains(appName) == true
+    }) else {
+        JSONOutput.error("App not running: \(appName)", json: json)
+        throw ExitCode.failure
+    }
+
+    app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    usleep(220_000)
+
+    let appElement = AXUIElementCreateApplication(app.processIdentifier)
+    guard let menuBar = axElementAttribute(appElement, kAXMenuBarAttribute) else {
+        JSONOutput.error("Could not access menu bar for \(app.localizedName ?? appName)", json: json)
+        throw ExitCode.failure
+    }
+
+    let segments = menuPath
+        .split(separator: ">")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+    guard !segments.isEmpty else {
+        JSONOutput.error("Menu path is empty. Example: \"File > New Window\"", json: json)
+        throw ExitCode.failure
+    }
+
+    var currentContainer = menuBar
+
+    for (index, segment) in segments.enumerated() {
+        guard let item = findMenuItem(in: currentContainer, query: segment) else {
+            JSONOutput.error("Menu item not found: \(segment)", json: json)
+            throw ExitCode.failure
+        }
+
+        let isLast = index == segments.count - 1
+        let result = AXUIElementPerformAction(item, kAXPressAction as CFString)
+        guard result == .success else {
+            JSONOutput.error("Failed to click menu item '\(segment)'", json: json)
+            throw ExitCode.failure
+        }
+
+        if isLast {
+            flashIndicatorIfRunning()
+            JSONOutput.print([
+                "status": "ok",
+                "message": "Clicked menu item \(menuPath) in \(app.localizedName ?? appName)",
+                "app": app.localizedName ?? appName,
+                "menuItem": menuPath,
+            ], json: json)
+            return
+        }
+
+        usleep(120_000)
+        guard let submenu = axElementAttribute(item, "AXMenu") ?? axChildren(item).first else {
+            JSONOutput.error("Submenu not available for '\(segment)'", json: json)
+            throw ExitCode.failure
+        }
+        currentContainer = submenu
+    }
+}
+
 struct MenuBar: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "menubar",
-        abstract: "Launch the MacPilot menu bar item"
+        abstract: "Menu bar commands",
+        subcommands: [MenuBarStart.self, MenuBarClick.self]
     )
 
     func run() throws {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
+        launchMenuBarController()
+    }
+}
 
-        let controller = MenuBarController()
-        menuBarController = controller
-        app.delegate = controller
-        app.run()
+struct MenuBarStart: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "start", abstract: "Launch the MacPilot menu bar item")
+
+    func run() throws {
+        launchMenuBarController()
+    }
+}
+
+struct MenuBarClick: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "click", abstract: "Click a menu bar item in an app")
+
+    @Argument(help: "Target app name") var appName: String
+    @Argument(help: "Menu path, e.g. \"File > New Window\"") var menuItem: String
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "menu bar interaction")
+        try clickMenuBarPath(appName: appName, menuPath: menuItem, json: json)
     }
 }
