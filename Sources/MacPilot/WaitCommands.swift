@@ -27,7 +27,7 @@ struct WaitElement: ParsableCommand {
                     return
                 }
             }
-            usleep(200_000) // 200ms
+            usleep(200_000)
         }
         JSONOutput.error("Timeout waiting for '\(query)' after \(timeout)s", json: json)
         throw ExitCode.failure
@@ -35,29 +35,65 @@ struct WaitElement: ParsableCommand {
 }
 
 struct WaitWindow: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "window", abstract: "Wait for window to appear")
+    static let configuration = CommandConfiguration(commandName: "window", abstract: "Wait for app/window title to appear")
 
-    @Argument(help: "App or window title") var name: String
+    @Argument(help: "App name or window title substring") var name: String
     @Option(name: .long, help: "Timeout in seconds") var timeout: Double = 10
     @Flag(name: .long) var json = false
 
     func run() throws {
         let deadline = Date().addingTimeInterval(timeout)
+
         while Date() < deadline {
-            if let pid = findAppPID(name) {
-                let appElement = AXUIElementCreateApplication(pid)
+            if let match = findWindowMatch(query: name) {
+                JSONOutput.print([
+                    "status": "ok",
+                    "message": "Window found: \(match.title) [\(match.app)]",
+                    "found": true,
+                    "app": match.app,
+                    "title": match.title,
+                ], json: json)
+                return
+            }
+            usleep(200_000)
+        }
+
+        JSONOutput.error("Timeout waiting for window '\(name)' after \(timeout)s", json: json)
+        throw ExitCode.failure
+    }
+
+    private func findWindowMatch(query: String) -> (app: String, title: String)? {
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+
+        for app in apps {
+            let appName = app.localizedName ?? ""
+
+            if appName.localizedCaseInsensitiveContains(query) {
+                let appElement = AXUIElementCreateApplication(app.processIdentifier)
                 var value: AnyObject?
                 if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
                    let windows = value as? [AXUIElement], !windows.isEmpty {
                     let title = getAttr(windows[0], kAXTitleAttribute) ?? ""
-                    JSONOutput.print(["status": "ok", "message": "Window found: \(title)", "found": true], json: json)
-                    return
+                    return (app: appName, title: title)
                 }
             }
-            usleep(200_000)
+
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            var value: AnyObject?
+            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
+                  let windows = value as? [AXUIElement] else {
+                continue
+            }
+
+            for win in windows {
+                let title = getAttr(win, kAXTitleAttribute) ?? ""
+                if !title.isEmpty && title.localizedCaseInsensitiveContains(query) {
+                    return (app: appName, title: title)
+                }
+            }
         }
-        JSONOutput.error("Timeout waiting for window '\(name)' after \(timeout)s", json: json)
-        throw ExitCode.failure
+
+        return nil
     }
 }
 

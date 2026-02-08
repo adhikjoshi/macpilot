@@ -12,7 +12,7 @@ struct App: ParsableCommand {
 struct AppOpen: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "open", abstract: "Open an application")
 
-    @Argument(help: "App name") var name: String
+    @Argument(help: "App name or bundle identifier") var name: String
     @Flag(name: .long) var json = false
 
     func run() throws {
@@ -20,16 +20,31 @@ struct AppOpen: ParsableCommand {
         let semaphore = DispatchSemaphore(value: 0)
         var openError: Error?
 
-        // Try to find by name in /Applications
-        let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: name)
-            ?? findAppURL(name)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let looksLikeBundleID = trimmed.contains(".") && !trimmed.contains("/") && !trimmed.contains(" ")
 
-        guard let appURL = url else {
-            JSONOutput.error("App not found: \(name)", json: json)
+        var attempts: [String] = []
+        var appURL: URL?
+
+        if looksLikeBundleID {
+            attempts.append("bundle-id lookup")
+            appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed)
+        }
+
+        if appURL == nil {
+            attempts.append("name lookup")
+            appURL = findAppURL(trimmed)
+        }
+
+        guard let url = appURL else {
+            JSONOutput.error(
+                "App not found: \(name). Tried: \(attempts.joined(separator: ", "))",
+                json: json
+            )
             throw ExitCode.failure
         }
 
-        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
             openError = error
             semaphore.signal()
         }
@@ -39,7 +54,12 @@ struct AppOpen: ParsableCommand {
             JSONOutput.error("Failed to open \(name): \(error.localizedDescription)", json: json)
             throw ExitCode.failure
         }
-        JSONOutput.print(["status": "ok", "message": "Opened \(name)"], json: json)
+
+        JSONOutput.print([
+            "status": "ok",
+            "message": "Opened \(name)",
+            "appPath": url.path,
+        ], json: json)
     }
 }
 
@@ -99,7 +119,6 @@ struct AppQuit: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
-        // Safety check
         if let reason = Safety.validateQuit(appName: name) {
             JSONOutput.error(reason, json: json)
             throw ExitCode.failure
@@ -111,7 +130,6 @@ struct AppQuit: ParsableCommand {
             throw ExitCode.failure
         }
 
-        // Double-check with resolved name
         if let resolvedName = app.localizedName, let reason = Safety.validateQuit(appName: resolvedName) {
             JSONOutput.error(reason, json: json)
             throw ExitCode.failure
@@ -127,26 +145,43 @@ struct AppQuit: ParsableCommand {
 }
 
 func findAppURL(_ name: String) -> URL? {
+    if name.hasSuffix(".app"), FileManager.default.fileExists(atPath: name) {
+        return URL(fileURLWithPath: name)
+    }
+
+    if let appByName = NSWorkspace.shared.urlForApplication(withBundleIdentifier: name) {
+        return appByName
+    }
+
+    if let appByNamePath = NSWorkspace.shared.fullPath(forApplication: name) {
+        return URL(fileURLWithPath: appByNamePath)
+    }
+
+    let cleanName = name.replacingOccurrences(of: ".app", with: "")
     let paths = ["/Applications", "/System/Applications", "/Applications/Utilities"]
     for path in paths {
-        let appPath = "\(path)/\(name).app"
+        let appPath = "\(path)/\(cleanName).app"
         if FileManager.default.fileExists(atPath: appPath) {
             return URL(fileURLWithPath: appPath)
         }
     }
-    // Try LSCopyApplicationURLsForURL or spotlight
+
     let task = Process()
     task.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-    task.arguments = ["kMDItemKind == 'Application' && kMDItemDisplayName == '\(name)'"]
+    task.arguments = ["kMDItemContentType == 'com.apple.application-bundle' && kMDItemDisplayName == '\(cleanName)'"]
     let pipe = Pipe()
     task.standardOutput = pipe
     try? task.run()
     task.waitUntilExit()
+
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     if let output = String(data: data, encoding: .utf8),
-       let firstLine = output.components(separatedBy: "\n").first,
-       !firstLine.isEmpty {
-        return URL(fileURLWithPath: firstLine)
+       let firstLine = output.split(separator: "\n").first {
+        let result = String(firstLine)
+        if !result.isEmpty {
+            return URL(fileURLWithPath: result)
+        }
     }
+
     return nil
 }

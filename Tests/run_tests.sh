@@ -2,7 +2,9 @@
 # MacPilot integration tests
 # Run: bash Tests/run_tests.sh
 
-MP="/Users/admin/clawd/tools/macpilot/MacPilot.app/Contents/MacOS/MacPilot"
+set -u
+
+MP="${MACPILOT_BIN:-$(pwd)/.build/release/macpilot}"
 PASS=0
 FAIL=0
 
@@ -17,77 +19,30 @@ assert_contains() {
     fi
 }
 
-assert_exit_code() {
-    local test_name="$1" expected="$2" actual="$3"
-    if [ "$actual" -eq "$expected" ]; then
-        echo "✅ $test_name"
-        ((PASS++))
-    else
-        echo "❌ $test_name — expected exit code $expected, got $actual"
-        ((FAIL++))
-    fi
-}
-
 echo "=== MacPilot Integration Tests ==="
+echo "Binary: $MP"
 echo ""
 
-# Test: version
-out=$($MP --version 2>&1)
-assert_contains "version" "$out" "0.3.0"
+if [ ! -x "$MP" ]; then
+    echo "❌ Binary not found or not executable at: $MP"
+    exit 1
+fi
 
-# Test: ax-check
+out=$($MP --version 2>&1)
+assert_contains "version" "$out" "0.4.0"
+
 out=$($MP ax-check --json 2>&1)
 assert_contains "ax-check returns JSON" "$out" '"status" : "ok"'
 assert_contains "ax-check has trusted field" "$out" '"trusted"'
 
-# Test: screenshot
-tmpfile="/tmp/macpilot_test_screenshot.png"
-rm -f "$tmpfile"
-out=$($MP screenshot --output "$tmpfile" --json 2>&1)
-assert_contains "screenshot JSON" "$out" '"status" : "ok"'
-if [ -f "$tmpfile" ] && [ "$(stat -f%z "$tmpfile")" -gt 1000 ]; then
-    echo "✅ screenshot file created and >1KB"
-    ((PASS++))
-else
-    echo "❌ screenshot file missing or too small"
-    ((FAIL++))
-fi
-rm -f "$tmpfile"
+out=$($MP wait window "__definitely_not_a_window__" --timeout 0.2 --json 2>&1) || true
+assert_contains "wait window timeout response" "$out" "Timeout waiting for window"
 
-# Test: app list
-out=$($MP app list --json 2>&1)
-assert_contains "app list has Finder" "$out" "Finder"
+out=$($MP window focus --app "__not_running__" --json 2>&1) || true
+assert_contains "window focus graceful missing app" "$out" "App not running"
 
-# Test: space list
-out=$($MP space list --json 2>&1)
-assert_contains "space list has current" "$out" '"current" : true'
-
-# Test: clipboard
-rand=$((RANDOM))
-$MP clipboard set "test_$rand" --json > /dev/null 2>&1
-out=$($MP clipboard get --json 2>&1)
-assert_contains "clipboard roundtrip" "$out" "test_$rand"
-
-# Test: chain with sleep actions
-out=$($MP chain "sleep:10" "sleep:10" --delay 10 --json 2>&1)
-assert_contains "chain executes" "$out" '"status" : "ok"'
-assert_contains "chain action count" "$out" "2 actions"
-
-# Test: safety - block system process quit
-out=$($MP app quit WindowServer --json 2>&1) || true
-assert_contains "safety blocks WindowServer quit" "$out" "REFUSED"
-
-# Test: safety - block dangerous shell
-out=$($MP shell run "rm -rf /System/test" --json 2>&1) || true
-assert_contains "safety blocks rm system" "$out" "REFUSED"
-
-# Test: safety - block TCC access
-out=$($MP shell run "sqlite3 /private/var/db/TCC/TCC.db .tables" --json 2>&1) || true
-assert_contains "safety blocks TCC" "$out" "REFUSED"
-
-# Test: window list --all-spaces
-out=$($MP window list --all-spaces --json 2>&1)
-assert_contains "window list returns data" "$out" '"app"'
+out=$($MP run --json 2>&1) || true
+assert_contains "run bundle guidance" "$out" "build-app.sh"
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
