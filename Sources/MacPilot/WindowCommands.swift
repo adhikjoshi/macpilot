@@ -5,7 +5,7 @@ import Foundation
 struct Window: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Window management",
-        subcommands: [WindowList.self, WindowFocus.self, WindowResize.self, WindowMove.self, WindowClose.self, WindowMinimize.self, WindowFullscreen.self]
+        subcommands: [WindowList.self, WindowFocus.self, WindowNew.self, WindowResize.self, WindowMove.self, WindowClose.self, WindowMinimize.self, WindowFullscreen.self]
     )
 }
 
@@ -22,7 +22,78 @@ private func getAppWindows(_ appName: String?) -> (pid_t, AXUIElement, [AXUIElem
     return (pid, appElement, windows)
 }
 
-private func windowInfo(_ win: AXUIElement) -> [String: Any] {
+private func runAppleScript(_ source: String) -> Bool {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    process.arguments = ["-e", source]
+    do {
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    } catch {
+        return false
+    }
+}
+
+private func sendCommandN() {
+    guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
+    let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 55, keyDown: true)
+    let nDown = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: true)
+    let nUp = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: false)
+    let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 55, keyDown: false)
+
+    nDown?.flags = .maskCommand
+    nUp?.flags = .maskCommand
+
+    let eventTap = CGEventTapLocation.cghidEventTap
+    cmdDown?.post(tap: eventTap)
+    nDown?.post(tap: eventTap)
+    nUp?.post(tap: eventTap)
+    cmdUp?.post(tap: eventTap)
+}
+
+private func isWindowVisibleOnCurrentSpace(_ win: AXUIElement, pid: pid_t?) -> Bool {
+    guard let pid else { return false }
+
+    let axTitle = getAttr(win, kAXTitleAttribute) ?? ""
+    let axPos = getPosition(win)
+    let axSize = getSize(win)
+
+    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return false }
+
+    let pidWindows = windows.filter {
+        let layer = $0[kCGWindowLayer as String] as? Int ?? -1
+        let ownerPID = $0[kCGWindowOwnerPID as String] as? Int ?? 0
+        return layer == 0 && ownerPID == Int(pid)
+    }
+
+    guard !pidWindows.isEmpty else { return false }
+
+    guard let axPos, let axSize else { return true }
+
+    for cgWin in pidWindows {
+        let cgTitle = cgWin[kCGWindowName as String] as? String ?? ""
+        if !axTitle.isEmpty, !cgTitle.isEmpty,
+           !cgTitle.localizedCaseInsensitiveContains(axTitle),
+           !axTitle.localizedCaseInsensitiveContains(cgTitle) {
+            continue
+        }
+
+        guard let bounds = cgWin[kCGWindowBounds as String] as? [String: Any] else { continue }
+        let x = bounds["X"] as? Double ?? Double(bounds["X"] as? Int ?? 0)
+        let y = bounds["Y"] as? Double ?? Double(bounds["Y"] as? Int ?? 0)
+        let w = bounds["Width"] as? Double ?? Double(bounds["Width"] as? Int ?? 0)
+        let h = bounds["Height"] as? Double ?? Double(bounds["Height"] as? Int ?? 0)
+
+        let closeEnough = abs(axPos.x - x) < 40 && abs(axPos.y - y) < 40 && abs(axSize.width - w) < 60 && abs(axSize.height - h) < 60
+        if closeEnough { return true }
+    }
+
+    return false
+}
+
+private func windowInfo(_ win: AXUIElement, pid: pid_t? = nil) -> [String: Any] {
     var dict: [String: Any] = [:]
     dict["title"] = getAttr(win, kAXTitleAttribute) ?? ""
     dict["role"] = getAttr(win, kAXRoleAttribute) ?? ""
@@ -35,6 +106,7 @@ private func windowInfo(_ win: AXUIElement) -> [String: Any] {
         dict["width"] = Int(sz.width)
         dict["height"] = Int(sz.height)
     }
+    dict["visible"] = isWindowVisibleOnCurrentSpace(win, pid: pid)
     // minimized?
     var minVal: AnyObject?
     if AXUIElementCopyAttributeValue(win, kAXMinimizedAttribute as CFString, &minVal) == .success {
@@ -86,6 +158,7 @@ struct WindowList: ParsableCommand {
                         "title": name,
                         "pid": pid,
                         "windowID": windowID,
+                        "visible": (win[kCGWindowIsOnscreen as String] as? Bool) ?? false,
                     ]
                     if let bounds = win[kCGWindowBounds as String] as? [String: Any] {
                         info["x"] = bounds["X"] as? Int ?? 0
@@ -97,12 +170,12 @@ struct WindowList: ParsableCommand {
                 }
             }
         } else if let appName = app {
-            guard let (_, _, windows) = getAppWindows(appName) else {
+            guard let (pid, _, windows) = getAppWindows(appName) else {
                 JSONOutput.error("No windows found for \(appName)", json: json)
                 throw ExitCode.failure
             }
             for win in windows {
-                var info = windowInfo(win)
+                var info = windowInfo(win, pid: pid)
                 info["app"] = appName
                 results.append(info)
             }
@@ -115,7 +188,7 @@ struct WindowList: ParsableCommand {
                 guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
                       let windows = value as? [AXUIElement] else { continue }
                 for win in windows {
-                    var info = windowInfo(win)
+                    var info = windowInfo(win, pid: pid)
                     info["app"] = runApp.localizedName ?? ""
                     info["pid"] = Int(pid)
                     results.append(info)
@@ -133,7 +206,8 @@ struct WindowList: ParsableCommand {
                 let y = w["y"] as? Int ?? 0
                 let width = w["width"] as? Int ?? 0
                 let height = w["height"] as? Int ?? 0
-                print("\(app): \"\(title)\" (\(x),\(y) \(width)x\(height))")
+                let visible = (w["visible"] as? Bool == true) ? "visible" : "hidden"
+                print("\(app): \"\(title)\" (\(x),\(y) \(width)x\(height)) [\(visible)]")
             }
         }
     }
@@ -186,13 +260,91 @@ struct WindowFocus: ParsableCommand {
             throw ExitCode.failure
         }
 
+        _ = NSApplication.shared
+        NSApp?.activate(ignoringOtherApps: true)
+        runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+
+        let processName = (runningApp.localizedName ?? resolvedApp).replacingOccurrences(of: "\"", with: "\\\"")
+        _ = runAppleScript("tell application \"\(processName)\" to activate")
+        _ = runAppleScript("tell application \"System Events\" to set frontmost of process \"\(processName)\" to true")
+
+        let visibilityDeadline = Date().addingTimeInterval(3)
+        var isVisible = isWindowVisibleOnCurrentSpace(window, pid: runningApp.processIdentifier)
+        var attemptedNewWindow = false
+        while !isVisible && Date() < visibilityDeadline {
+            if !attemptedNewWindow {
+                sendCommandN()
+                attemptedNewWindow = true
+            }
+            usleep(120_000)
+            isVisible = isWindowVisibleOnCurrentSpace(window, pid: runningApp.processIdentifier)
+            if !isVisible,
+               let (_, _, refreshedWindows) = getAppWindows(resolvedApp),
+               let firstVisible = refreshedWindows.first(where: { isWindowVisibleOnCurrentSpace($0, pid: runningApp.processIdentifier) }) {
+                _ = AXUIElementPerformAction(firstVisible, kAXRaiseAction as CFString)
+                isVisible = isWindowVisibleOnCurrentSpace(firstVisible, pid: runningApp.processIdentifier)
+            }
+        }
+
+        if !isVisible {
+            JSONOutput.error("Window was raised but is not visible on the current Space", json: json)
+            throw ExitCode.failure
+        }
+
         let resolvedTitle = getAttr(window, kAXTitleAttribute) ?? ""
         JSONOutput.print([
             "status": "ok",
             "message": "Focused window '\(resolvedTitle)' in \(runningApp.localizedName ?? resolvedApp)",
             "app": runningApp.localizedName ?? resolvedApp,
             "title": resolvedTitle,
+            "visible": isVisible,
         ], json: json)
+    }
+}
+
+struct WindowNew: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "new", abstract: "Open a new window in an app")
+
+    @Argument(help: "App name") var app: String
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        let runningApps = NSWorkspace.shared.runningApplications
+        guard let runningApp = runningApps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(app) == true }) else {
+            JSONOutput.error("App not running: \(app)", json: json)
+            throw ExitCode.failure
+        }
+
+        let appName = runningApp.localizedName ?? app
+        runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+
+        let escapedName = appName.replacingOccurrences(of: "\"", with: "\\\"")
+        _ = runAppleScript("tell application \"\(escapedName)\" to make new document")
+        usleep(150_000)
+        if getAppWindows(appName) == nil {
+            sendCommandN()
+        }
+
+        let deadline = Date().addingTimeInterval(3)
+        var selectedWindow: AXUIElement?
+        while Date() < deadline {
+            if let (_, _, windows) = getAppWindows(appName), let first = windows.first {
+                selectedWindow = first
+                break
+            }
+            usleep(100_000)
+        }
+
+        guard let selectedWindow else {
+            JSONOutput.error("Failed to create new window in \(appName)", json: json)
+            throw ExitCode.failure
+        }
+
+        var info = windowInfo(selectedWindow, pid: runningApp.processIdentifier)
+        info["status"] = "ok"
+        info["message"] = "Opened new window in \(appName)"
+        info["app"] = appName
+        JSONOutput.print(info, json: json)
     }
 }
 
