@@ -6,7 +6,7 @@ struct MacPilot: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "macpilot",
         abstract: "Programmatic macOS control for AI agents",
-        version: "0.3.0",
+        version: "0.4.0",
         subcommands: [
             Click.self,
             DoubleClick.self,

@@ -14,21 +14,21 @@ struct Run: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
-        // Find our own .app bundle path
         let execPath = ProcessInfo.processInfo.arguments[0]
         let bundlePath = findBundlePath(execPath)
 
         guard let appPath = bundlePath else {
-            JSONOutput.error("Cannot find .app bundle for re-launch. Exec path: \(execPath)", json: json)
+            JSONOutput.error(
+                "Cannot find .app bundle for re-launch. Set MACPILOT_APP_PATH or build one with: bash scripts/build-app.sh",
+                json: json
+            )
             throw ExitCode.failure
         }
 
-        // Create temp files for output
         let tmpDir = FileManager.default.temporaryDirectory
         let outFile = tmpDir.appendingPathComponent("macpilot_run_\(ProcessInfo.processInfo.processIdentifier)_out.txt")
         let errFile = tmpDir.appendingPathComponent("macpilot_run_\(ProcessInfo.processInfo.processIdentifier)_err.txt")
 
-        // Clean up any existing files
         try? FileManager.default.removeItem(at: outFile)
         try? FileManager.default.removeItem(at: errFile)
         FileManager.default.createFile(atPath: outFile.path, contents: nil)
@@ -39,8 +39,6 @@ struct Run: ParsableCommand {
             try? FileManager.default.removeItem(at: errFile)
         }
 
-        // Build the open command
-        // open -W -a /path/to/MacPilot.app --stdout /tmp/out --stderr /tmp/err --args <subcommand> <args...>
         var openArgs = ["-W", "-a", appPath, "--stdout", outFile.path, "--stderr", errFile.path]
         if !args.isEmpty {
             openArgs.append("--args")
@@ -53,37 +51,41 @@ struct Run: ParsableCommand {
         try task.run()
         task.waitUntilExit()
 
-        // Read and print output
         let stdout = (try? String(contentsOf: outFile, encoding: .utf8)) ?? ""
         let stderr = (try? String(contentsOf: errFile, encoding: .utf8)) ?? ""
 
-        if !stdout.isEmpty {
-            print(stdout, terminator: "")
-        }
-        if !stderr.isEmpty {
-            FileHandle.standardError.write(Data(stderr.utf8))
-        }
+        if !stdout.isEmpty { print(stdout, terminator: "") }
+        if !stderr.isEmpty { FileHandle.standardError.write(Data(stderr.utf8)) }
 
         if task.terminationStatus != 0 {
             throw ExitCode(task.terminationStatus)
         }
     }
 
-    /// Walk up from the executable to find the .app bundle
     private func findBundlePath(_ execPath: String) -> String? {
-        var url = URL(fileURLWithPath: execPath).standardized
-        // Walk up looking for .app
-        for _ in 0..<5 {
-            url = url.deletingLastPathComponent()
-            if url.pathExtension == "app" {
-                return url.path
+        let fm = FileManager.default
+
+        if let overridePath = ProcessInfo.processInfo.environment["MACPILOT_APP_PATH"], !overridePath.isEmpty {
+            if fm.fileExists(atPath: overridePath) {
+                return overridePath
+            }
+            let expanded = NSString(string: overridePath).expandingTildeInPath
+            if fm.fileExists(atPath: expanded) {
+                return expanded
             }
         }
-        // Fallback: check if we know the standard path
-        let standardPath = "/Users/admin/clawd/tools/macpilot/MacPilot.app"
-        if FileManager.default.fileExists(atPath: standardPath) {
-            return standardPath
+
+        var url = URL(fileURLWithPath: execPath).standardizedFileURL
+        for _ in 0..<8 {
+            if url.pathExtension == "app" { return url.path }
+            url.deleteLastPathComponent()
         }
+
+        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
+        if bundleURL.pathExtension == "app", fm.fileExists(atPath: bundleURL.path) {
+            return bundleURL.path
+        }
+
         return nil
     }
 }

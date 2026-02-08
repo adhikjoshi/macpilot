@@ -5,7 +5,7 @@ import Foundation
 struct Window: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Window management",
-        subcommands: [WindowList.self, WindowResize.self, WindowMove.self, WindowClose.self, WindowMinimize.self, WindowFullscreen.self]
+        subcommands: [WindowList.self, WindowFocus.self, WindowResize.self, WindowMove.self, WindowClose.self, WindowMinimize.self, WindowFullscreen.self]
     )
 }
 
@@ -136,6 +136,56 @@ struct WindowList: ParsableCommand {
                 print("\(app): \"\(title)\" (\(x),\(y) \(width)x\(height))")
             }
         }
+    }
+}
+
+struct WindowFocus: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "focus", abstract: "Focus and raise a window")
+
+    @Option(name: .long, help: "App name") var app: String
+    @Option(name: .long, help: "Optional window title substring") var title: String?
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        let runningApps = NSWorkspace.shared.runningApplications
+        guard let runningApp = runningApps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(app) == true }) else {
+            JSONOutput.error("App not running: \(app)", json: json)
+            throw ExitCode.failure
+        }
+
+        runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+
+        guard let (_, _, windows) = getAppWindows(app) else {
+            JSONOutput.error("No windows found for \(app)", json: json)
+            throw ExitCode.failure
+        }
+
+        let selectedWindow: AXUIElement? = {
+            guard let titleFilter = title, !titleFilter.isEmpty else { return windows.first }
+            return windows.first { win in
+                let windowTitle = (getAttr(win, kAXTitleAttribute) ?? "")
+                return windowTitle.localizedCaseInsensitiveContains(titleFilter)
+            }
+        }()
+
+        guard let window = selectedWindow else {
+            JSONOutput.error("No matching window found for app '\(app)' title '\(title ?? "")'", json: json)
+            throw ExitCode.failure
+        }
+
+        let raiseResult = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        if raiseResult != .success {
+            JSONOutput.error("Failed to raise window (AX error: \(raiseResult.rawValue))", json: json)
+            throw ExitCode.failure
+        }
+
+        let resolvedTitle = getAttr(window, kAXTitleAttribute) ?? ""
+        JSONOutput.print([
+            "status": "ok",
+            "message": "Focused window '\(resolvedTitle)' in \(runningApp.localizedName ?? app)",
+            "app": runningApp.localizedName ?? app,
+            "title": resolvedTitle,
+        ], json: json)
     }
 }
 
