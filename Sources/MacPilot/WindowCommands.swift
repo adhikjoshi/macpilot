@@ -63,13 +63,40 @@ struct WindowList: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "list", abstract: "List all windows with positions/sizes")
 
     @Option(name: .long, help: "App name") var app: String?
+    @Flag(name: .long, help: "Include windows from all Spaces (via CG API)") var allSpaces = false
     @Flag(name: .long) var json = false
 
     func run() throws {
-        // If app specified, list that app's windows; otherwise list all regular apps' windows
         var results: [[String: Any]] = []
 
-        if let appName = app {
+        // Use AX API for per-app, CG API for all-spaces overview
+        if allSpaces && app == nil {
+            // Use CGWindowListCopyWindowInfo which can see all windows
+            let option: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+            if let windowList = CGWindowListCopyWindowInfo(option, kCGNullWindowID) as? [[String: Any]] {
+                for win in windowList {
+                    let layer = win[kCGWindowLayer as String] as? Int ?? -1
+                    guard layer == 0 else { continue } // normal windows only
+                    let ownerName = win[kCGWindowOwnerName as String] as? String ?? ""
+                    let name = win[kCGWindowName as String] as? String ?? ""
+                    let pid = win[kCGWindowOwnerPID as String] as? Int ?? 0
+                    let windowID = win[kCGWindowNumber as String] as? Int ?? 0
+                    var info: [String: Any] = [
+                        "app": ownerName,
+                        "title": name,
+                        "pid": pid,
+                        "windowID": windowID,
+                    ]
+                    if let bounds = win[kCGWindowBounds as String] as? [String: Any] {
+                        info["x"] = bounds["X"] as? Int ?? 0
+                        info["y"] = bounds["Y"] as? Int ?? 0
+                        info["width"] = bounds["Width"] as? Int ?? 0
+                        info["height"] = bounds["Height"] as? Int ?? 0
+                    }
+                    results.append(info)
+                }
+            }
+        } else if let appName = app {
             guard let (_, _, windows) = getAppWindows(appName) else {
                 JSONOutput.error("No windows found for \(appName)", json: json)
                 throw ExitCode.failure

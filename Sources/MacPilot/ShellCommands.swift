@@ -16,6 +16,12 @@ struct ShellRun: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
+        // Safety check
+        if let reason = Safety.validateShellCommand(command) {
+            JSONOutput.error(reason, json: json)
+            throw ExitCode.failure
+        }
+
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/bash")
         task.arguments = ["-c", command]
