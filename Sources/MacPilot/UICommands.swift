@@ -783,8 +783,6 @@ struct UIShortcuts: ParsableCommand {
             if role == "AXMenuItem" || role == "AXMenuBarItem" {
                 // Check for keyboard shortcut
                 let cmdChar = getAttr(item, "AXMenuItemCmdChar") ?? ""
-                let cmdKey = getAttr(item, "AXMenuItemCmdVirtualKey")
-
                 var modifiers: UInt32 = 0
                 var modRef: AnyObject?
                 if AXUIElementCopyAttributeValue(item, "AXMenuItemCmdModifiers" as CFString, &modRef) == .success {

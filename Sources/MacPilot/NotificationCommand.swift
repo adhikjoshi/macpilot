@@ -1,6 +1,7 @@
 import ArgumentParser
 import AppKit
 import Foundation
+import UserNotifications
 
 struct NotificationCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -18,12 +19,33 @@ struct NotificationSend: ParsableCommand {
     @Flag(name: .long) var json = false
 
     func run() throws {
-        let notification = NSUserNotification()
-        notification.title = title
-        notification.informativeText = body
+        let center = UNUserNotificationCenter.current()
+        let semaphore = DispatchSemaphore(value: 0)
+
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in
+            semaphore.signal()
+        }
+        semaphore.wait()
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        var deliveryError: Error?
+
+        center.add(request) { error in
+            deliveryError = error
+            semaphore.signal()
+        }
+        semaphore.wait()
 
         flashIndicatorIfRunning()
-        NSUserNotificationCenter.default.deliver(notification)
+
+        if let err = deliveryError {
+            JSONOutput.error("Failed to send notification: \(err.localizedDescription)", json: json)
+            throw ExitCode.failure
+        }
 
         JSONOutput.print([
             "status": "ok",

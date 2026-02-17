@@ -26,9 +26,6 @@ private func scanDialogElements(_ root: AXUIElement, depth: Int = 0, maxDepth: I
         role.contains("Table") || role.contains("Outline") ||
         role.contains("Browser")
 
-    // Build a readable label from available text
-    let label = [title, desc].filter { !$0.isEmpty }.joined(separator: " - ")
-
     if isInteractive || role == "AXSheet" || role == "AXStaticText" {
         var entry: [String: Any] = [
             "role": role,
@@ -76,8 +73,6 @@ private func findDialogField(
     let elRole = getAttr(root, kAXRoleAttribute) ?? ""
     let elTitle = getAttr(root, kAXTitleAttribute) ?? ""
     let elDesc = getAttr(root, kAXDescriptionAttribute) ?? ""
-    let elSubrole = getAttr(root, kAXSubroleAttribute) ?? ""
-
     let roleMatch = role == nil || elRole.localizedCaseInsensitiveContains(role!)
     let labelMatch = label == nil ||
         elTitle.localizedCaseInsensitiveContains(label!) ||

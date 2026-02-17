@@ -349,10 +349,6 @@ func findAppURL(_ name: String) -> URL? {
         return appByName
     }
 
-    if let appByNamePath = NSWorkspace.shared.fullPath(forApplication: name) {
-        return URL(fileURLWithPath: appByNamePath)
-    }
-
     let cleanName = name.replacingOccurrences(of: ".app", with: "")
     let paths = ["/Applications", "/System/Applications", "/Applications/Utilities"]
     for path in paths {
