@@ -33,6 +33,7 @@ struct OCR: ParsableCommand {
     @Argument(parsing: .remaining, help: "Either <image-path> or <x> <y> <w> <h>")
     var input: [String] = []
 
+    @Option(name: .long, help: "Recognition language (e.g. en-US, ja, zh-Hans, de, fr)") var language: String?
     @Flag(name: .long) var json = false
 
     func run() throws {
@@ -43,6 +44,8 @@ struct OCR: ParsableCommand {
 
         var imagePath = ""
         var tempFileToDelete: String?
+        var regionOffsetX = 0
+        var regionOffsetY = 0
 
         if input.count == 1 {
             imagePath = input[0]
@@ -56,6 +59,9 @@ struct OCR: ParsableCommand {
                 JSONOutput.error("Region must be integer x y w h with positive size", json: json)
                 throw ExitCode.failure
             }
+
+            regionOffsetX = x
+            regionOffsetY = y
 
             let tmp = "/tmp/macpilot_ocr_\(UUID().uuidString).png"
             guard captureRegionToImage(x: x, y: y, width: w, height: h, outputPath: tmp) else {
@@ -81,7 +87,12 @@ struct OCR: ParsableCommand {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        request.recognitionLanguages = ["en-US"]
+
+        if let lang = language {
+            request.recognitionLanguages = [lang]
+        } else {
+            request.recognitionLanguages = ["en-US"]
+        }
 
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         do {
@@ -92,6 +103,7 @@ struct OCR: ParsableCommand {
         }
 
         let dimensions = imageDimensions(path: imagePath)
+        let scaleFactor = NSScreen.main?.backingScaleFactor ?? 1.0
         let observations = request.results ?? []
 
         var lines: [[String: Any]] = []
@@ -100,32 +112,48 @@ struct OCR: ParsableCommand {
         for obs in observations {
             guard let candidate = obs.topCandidates(1).first else { continue }
             let rect = obs.boundingBox
-            let x = rect.origin.x * dimensions.width
-            let y = (1.0 - rect.origin.y - rect.size.height) * dimensions.height
-            let width = rect.size.width * dimensions.width
-            let height = rect.size.height * dimensions.height
+            // Image pixel coordinates
+            let imgX = rect.origin.x * dimensions.width
+            let imgY = (1.0 - rect.origin.y - rect.size.height) * dimensions.height
+            let imgW = rect.size.width * dimensions.width
+            let imgH = rect.size.height * dimensions.height
+
+            let screenX = Int(round(imgX / scaleFactor)) + regionOffsetX
+            let screenY = Int(round(imgY / scaleFactor)) + regionOffsetY
+            let screenW = Int(round(imgW / scaleFactor))
+            let screenH = Int(round(imgH / scaleFactor))
 
             let text = candidate.string
             fullText.append(text)
-            lines.append([
+            let lineInfo: [String: Any] = [
                 "text": text,
                 "confidence": candidate.confidence,
-                "x": Int(round(x)),
-                "y": Int(round(y)),
-                "width": Int(round(width)),
-                "height": Int(round(height)),
-            ])
+                "x": Int(round(imgX)),
+                "y": Int(round(imgY)),
+                "width": Int(round(imgW)),
+                "height": Int(round(imgH)),
+                "screenX": screenX,
+                "screenY": screenY,
+                "screenWidth": screenW,
+                "screenHeight": screenH,
+                "screenCenterX": screenX + screenW / 2,
+                "screenCenterY": screenY + screenH / 2,
+            ]
+            lines.append(lineInfo)
         }
 
         flashIndicatorIfRunning()
 
         if json {
-            JSONOutput.print([
+            let result: [String: Any] = [
                 "status": "ok",
                 "path": imagePath,
                 "text": fullText.joined(separator: "\n"),
                 "lines": lines,
-            ], json: true)
+                "scaleFactor": scaleFactor,
+                "regionOffset": ["x": regionOffsetX, "y": regionOffsetY],
+            ]
+            JSONOutput.print(result, json: true)
         } else {
             if fullText.isEmpty {
                 print("")

@@ -6,7 +6,7 @@ struct MacPilot: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "macpilot",
         abstract: "Programmatic macOS control for AI agents",
-        version: "0.5.0",
+        version: "0.6.0",
         subcommands: [
             Click.self,
             DoubleClick.self,
@@ -14,6 +14,7 @@ struct MacPilot: ParsableCommand {
             Move.self,
             Drag.self,
             Scroll.self,
+            MousePosition.self,
             TypeText.self,
             Key.self,
             Keyboard.self,
@@ -28,6 +29,7 @@ struct MacPilot: ParsableCommand {
             NotificationCommand.self,
             Audio.self,
             Display.self,
+            DisplayInfo.self,
             Screen.self,
             ProcessControl.self,
             SystemCommand.self,
@@ -36,17 +38,21 @@ struct MacPilot: ParsableCommand {
             Network.self,
             Appearance.self,
             Wait.self,
+            Watch.self,
             Space.self,
             AXCheck.self,
             Chain.self,
             Chrome.self,
+            Menu.self,
             MenuBar.self,
+            LoginItems.self,
             Run.self,
         ]
     )
 
     mutating func validate() throws {
         ensureIndicatorAutoStartIfNeeded()
+        sendActivityToIndicator()
     }
 }
 

@@ -14,33 +14,11 @@ private func appHasAXWindows(_ pid: pid_t) -> Bool {
 }
 
 private func runAppleScript(_ source: String) -> Bool {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    process.arguments = ["-e", source]
-    do {
-        try process.run()
-        process.waitUntilExit()
-        return process.terminationStatus == 0
-    } catch {
-        return false
-    }
+    sharedRunAppleScript(source)
 }
 
 private func sendCommandN() {
-    guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
-    let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 55, keyDown: true)
-    let nDown = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: true)
-    let nUp = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: false)
-    let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 55, keyDown: false)
-
-    nDown?.flags = .maskCommand
-    nUp?.flags = .maskCommand
-
-    let eventTap = CGEventTapLocation.cghidEventTap
-    cmdDown?.post(tap: eventTap)
-    nDown?.post(tap: eventTap)
-    nUp?.post(tap: eventTap)
-    cmdUp?.post(tap: eventTap)
+    sharedSendCommandN()
 }
 
 private func appHasVisibleWindowOnCurrentSpace(_ pid: pid_t) -> Bool {
@@ -190,7 +168,7 @@ private func focusApp(named name: String, json: Bool) throws {
 struct App: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "App management",
-        subcommands: [AppOpen.self, AppLaunch.self, AppFocus.self, AppActivate.self, AppFrontmost.self, AppList.self, AppQuit.self]
+        subcommands: [AppOpen.self, AppLaunch.self, AppFocus.self, AppActivate.self, AppFrontmost.self, AppList.self, AppQuit.self, AppHide.self, AppUnhide.self]
     )
 }
 
@@ -322,6 +300,43 @@ struct AppQuit: ParsableCommand {
             app.terminate()
         }
         JSONOutput.print(["status": "ok", "message": "Quit \(app.localizedName ?? name)"], json: json)
+    }
+}
+
+struct AppHide: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "hide", abstract: "Hide an application")
+
+    @Argument(help: "App name") var name: String
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        let apps = NSWorkspace.shared.runningApplications
+        guard let app = apps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(name) == true }) else {
+            JSONOutput.error("App not running: \(name)", json: json)
+            throw ExitCode.failure
+        }
+        flashIndicatorIfRunning()
+        app.hide()
+        JSONOutput.print(["status": "ok", "message": "Hidden \(app.localizedName ?? name)"], json: json)
+    }
+}
+
+struct AppUnhide: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "unhide", abstract: "Unhide (show) a hidden application")
+
+    @Argument(help: "App name") var name: String
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        let apps = NSWorkspace.shared.runningApplications
+        guard let app = apps.first(where: { $0.localizedName?.localizedCaseInsensitiveContains(name) == true }) else {
+            JSONOutput.error("App not running: \(name)", json: json)
+            throw ExitCode.failure
+        }
+        flashIndicatorIfRunning()
+        app.unhide()
+        app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        JSONOutput.print(["status": "ok", "message": "Unhidden \(app.localizedName ?? name)"], json: json)
     }
 }
 

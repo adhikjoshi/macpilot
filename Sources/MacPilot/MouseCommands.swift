@@ -1,4 +1,5 @@
 import ArgumentParser
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -88,6 +89,32 @@ struct Scroll: ParsableCommand {
     }
 }
 
+struct MousePosition: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "mouse-position", abstract: "Get current mouse cursor position")
+
+    @Flag(name: .long) var json = false
+
+    func run() {
+        let location = NSEvent.mouseLocation
+        // Convert from bottom-left to top-left coordinate system
+        let screenHeight = NSScreen.main?.frame.height ?? 0
+        let x = Int(location.x)
+        let y = Int(screenHeight - location.y)
+
+        if json {
+            JSONOutput.print([
+                "status": "ok",
+                "x": x,
+                "y": y,
+                "screenX": Int(location.x),
+                "screenY": Int(location.y),
+            ], json: true)
+        } else {
+            print("Mouse at (\(x), \(y))")
+        }
+    }
+}
+
 // MARK: - Mouse Controller
 
 enum MouseController {
@@ -129,15 +156,26 @@ enum MouseController {
         event?.post(tap: .cghidEventTap)
     }
 
-    static func drag(fromX: Double, fromY: Double, toX: Double, toY: Double) {
+    static func drag(fromX: Double, fromY: Double, toX: Double, toY: Double, steps: Int = 10) {
         let start = CGPoint(x: fromX, y: fromY)
         let end = CGPoint(x: toX, y: toY)
         let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left)
         down?.post(tap: .cghidEventTap)
         usleep(50000)
-        let drag = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: end, mouseButton: .left)
-        drag?.post(tap: .cghidEventTap)
-        usleep(50000)
+
+        // Intermediate steps for smooth dragging
+        let resolvedSteps = max(steps, 2)
+        for i in 1...resolvedSteps {
+            let t = Double(i) / Double(resolvedSteps)
+            let ix = fromX + (toX - fromX) * t
+            let iy = fromY + (toY - fromY) * t
+            let intermediate = CGPoint(x: ix, y: iy)
+            let drag = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: intermediate, mouseButton: .left)
+            drag?.post(tap: .cghidEventTap)
+            usleep(15000)
+        }
+
+        usleep(30000)
         let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)
         up?.post(tap: .cghidEventTap)
     }

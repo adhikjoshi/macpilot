@@ -85,8 +85,23 @@ private func listChromeTabs() throws -> [[String: Any]] {
     return tabs
 }
 
+private func pasteURL(_ url: String) {
+    let pb = NSPasteboard.general
+    let previousContent = pb.string(forType: .string)
+    pb.clearContents()
+    pb.setString(url, forType: .string)
+    usleep(50_000)
+    KeyboardController.pressCombo("cmd+v")
+    usleep(150_000)
+    // Restore previous clipboard
+    if let prev = previousContent {
+        pb.clearContents()
+        pb.setString(prev, forType: .string)
+    }
+}
+
 struct ChromeOpenURL: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "open-url", abstract: "Open URL in current tab (Cmd+L, type, Return)")
+    static let configuration = CommandConfiguration(commandName: "open-url", abstract: "Open URL in current tab (Cmd+L, paste, Return)")
 
     @Argument(help: "URL to open") var url: String
     @Flag(name: .long) var json = false
@@ -95,7 +110,7 @@ struct ChromeOpenURL: ParsableCommand {
         try focusChrome(json: json)
         KeyboardController.pressCombo("cmd+l")
         usleep(200_000)
-        KeyboardController.typeText(url)
+        pasteURL(url)
         usleep(100_000)
         KeyboardController.pressCombo("return")
         JSONOutput.print(["status": "ok", "message": "Opened \(url) in Chrome"], json: json)
@@ -103,7 +118,7 @@ struct ChromeOpenURL: ParsableCommand {
 }
 
 struct ChromeNewTab: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "new-tab", abstract: "Open URL in new tab (Cmd+T, type, Return)")
+    static let configuration = CommandConfiguration(commandName: "new-tab", abstract: "Open URL in new tab (Cmd+T, paste, Return)")
 
     @Argument(help: "URL to open") var url: String
     @Flag(name: .long) var json = false
@@ -112,7 +127,7 @@ struct ChromeNewTab: ParsableCommand {
         try focusChrome(json: json)
         KeyboardController.pressCombo("cmd+t")
         usleep(300_000)
-        KeyboardController.typeText(url)
+        pasteURL(url)
         usleep(100_000)
         KeyboardController.pressCombo("return")
         JSONOutput.print(["status": "ok", "message": "Opened \(url) in new Chrome tab"], json: json)

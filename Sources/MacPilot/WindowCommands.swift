@@ -5,7 +5,7 @@ import Foundation
 struct Window: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Window management",
-        subcommands: [WindowList.self, WindowFocus.self, WindowNew.self, WindowResize.self, WindowMove.self, WindowClose.self, WindowMinimize.self, WindowFullscreen.self]
+        subcommands: [WindowList.self, WindowFocus.self, WindowNew.self, WindowResize.self, WindowMove.self, WindowClose.self, WindowMinimize.self, WindowFullscreen.self, WindowSnap.self, WindowRestore.self]
     )
 }
 
@@ -23,33 +23,11 @@ private func getAppWindows(_ appName: String?) -> (pid_t, AXUIElement, [AXUIElem
 }
 
 private func runAppleScript(_ source: String) -> Bool {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    process.arguments = ["-e", source]
-    do {
-        try process.run()
-        process.waitUntilExit()
-        return process.terminationStatus == 0
-    } catch {
-        return false
-    }
+    sharedRunAppleScript(source)
 }
 
 private func sendCommandN() {
-    guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
-    let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 55, keyDown: true)
-    let nDown = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: true)
-    let nUp = CGEvent(keyboardEventSource: source, virtualKey: 45, keyDown: false)
-    let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 55, keyDown: false)
-
-    nDown?.flags = .maskCommand
-    nUp?.flags = .maskCommand
-
-    let eventTap = CGEventTapLocation.cghidEventTap
-    cmdDown?.post(tap: eventTap)
-    nDown?.post(tap: eventTap)
-    nUp?.post(tap: eventTap)
-    cmdUp?.post(tap: eventTap)
+    sharedSendCommandN()
 }
 
 private func isWindowVisibleOnCurrentSpace(_ win: AXUIElement, pid: pid_t?) -> Bool {
@@ -496,5 +474,161 @@ struct WindowFullscreen: ParsableCommand {
         AXUIElementSetAttributeValue(win, "AXFullScreen" as CFString, (!isFullscreen) as CFBoolean)
         let state = !isFullscreen ? "entered" : "exited"
         JSONOutput.print(["status": "ok", "message": "\(resolvedApp) \(state) fullscreen"], json: json)
+    }
+}
+
+struct WindowSnap: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "snap", abstract: "Snap window to a screen position (left, right, top, bottom, center, maximize)")
+
+    @Argument(help: "App name") var appName: String?
+    @Argument(help: "Snap position: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize") var position: String?
+    @Option(name: .long, help: "App name") var app: String?
+    @Option(name: .long, help: "Snap position") var snap: String?
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        guard let resolvedApp = app ?? appName else {
+            JSONOutput.error("Provide app name", json: json)
+            throw ExitCode.failure
+        }
+        guard let snapPos = (snap ?? position)?.lowercased() else {
+            JSONOutput.error("Provide snap position: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize", json: json)
+            throw ExitCode.failure
+        }
+
+        guard let (_, _, windows) = getAppWindows(resolvedApp), let win = windows.first else {
+            JSONOutput.error("No windows found for \(resolvedApp)", json: json)
+            throw ExitCode.failure
+        }
+
+        guard let screen = NSScreen.main else {
+            JSONOutput.error("No main screen found", json: json)
+            throw ExitCode.failure
+        }
+
+        let visible = screen.visibleFrame
+        let menuBarHeight = screen.frame.height - visible.height - visible.origin.y
+        let sw = visible.width
+        let sh = visible.height
+        let sx = visible.origin.x
+        let sy = menuBarHeight
+
+        var x: Double, y: Double, w: Double, h: Double
+
+        switch snapPos {
+        case "left":
+            x = sx; y = sy; w = sw / 2; h = sh
+        case "right":
+            x = sx + sw / 2; y = sy; w = sw / 2; h = sh
+        case "top-left":
+            x = sx; y = sy; w = sw / 2; h = sh / 2
+        case "top-right":
+            x = sx + sw / 2; y = sy; w = sw / 2; h = sh / 2
+        case "bottom-left":
+            x = sx; y = sy + sh / 2; w = sw / 2; h = sh / 2
+        case "bottom-right":
+            x = sx + sw / 2; y = sy + sh / 2; w = sw / 2; h = sh / 2
+        case "center":
+            w = sw * 0.6; h = sh * 0.7
+            x = sx + (sw - w) / 2; y = sy + (sh - h) / 2
+        case "maximize", "max":
+            x = sx; y = sy; w = sw; h = sh
+        default:
+            JSONOutput.error("Unknown position: \(snapPos). Use: left, right, top-left, top-right, bottom-left, bottom-right, center, maximize", json: json)
+            throw ExitCode.failure
+        }
+
+        flashIndicatorIfRunning()
+        setPosition(win, x: x, y: y)
+        usleep(50_000)
+        setSize(win, width: w, height: h)
+
+        JSONOutput.print(["status": "ok", "message": "Snapped \(resolvedApp) to \(snapPos)", "x": Int(x), "y": Int(y), "width": Int(w), "height": Int(h)], json: json)
+    }
+}
+
+private var windowStateFile: String {
+    NSHomeDirectory() + "/.macpilot_window_state.json"
+}
+
+struct WindowRestore: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "restore", abstract: "Save or restore window positions")
+
+    @Flag(name: .long, help: "Save current window layout") var save = false
+    @Option(name: .long, help: "App name (optional, all apps if omitted)") var app: String?
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        if save {
+            try saveLayout()
+        } else {
+            try restoreLayout()
+        }
+    }
+
+    private func saveLayout() throws {
+        var layout: [[String: Any]] = []
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        for runApp in apps {
+            let appName = runApp.localizedName ?? ""
+            if let filterApp = app, !appName.localizedCaseInsensitiveContains(filterApp) { continue }
+
+            let pid = runApp.processIdentifier
+            let appElement = AXUIElementCreateApplication(pid)
+            var value: AnyObject?
+            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
+                  let windows = value as? [AXUIElement] else { continue }
+
+            for win in windows {
+                let title = getAttr(win, kAXTitleAttribute) ?? ""
+                guard let pos = getPosition(win), let size = getSize(win) else { continue }
+                layout.append([
+                    "app": appName,
+                    "title": title,
+                    "x": Int(pos.x), "y": Int(pos.y),
+                    "width": Int(size.width), "height": Int(size.height),
+                ])
+            }
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: layout, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: windowStateFile))
+
+        JSONOutput.print(["status": "ok", "message": "Saved \(layout.count) window positions", "count": layout.count], json: json)
+    }
+
+    private func restoreLayout() throws {
+        guard FileManager.default.fileExists(atPath: windowStateFile) else {
+            JSONOutput.error("No saved layout found. Use --save first.", json: json)
+            throw ExitCode.failure
+        }
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: windowStateFile))
+        guard let layout = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            JSONOutput.error("Invalid saved layout", json: json)
+            throw ExitCode.failure
+        }
+
+        var restored = 0
+        for entry in layout {
+            guard let appName = entry["app"] as? String else { continue }
+            if let filterApp = app, !appName.localizedCaseInsensitiveContains(filterApp) { continue }
+
+            guard let (_, _, windows) = getAppWindows(appName) else { continue }
+            let targetTitle = entry["title"] as? String ?? ""
+            let x = entry["x"] as? Int ?? 0
+            let y = entry["y"] as? Int ?? 0
+            let w = entry["width"] as? Int ?? 0
+            let h = entry["height"] as? Int ?? 0
+
+            let win = windows.first { getAttr($0, kAXTitleAttribute) == targetTitle } ?? windows.first
+            guard let win else { continue }
+
+            setPosition(win, x: Double(x), y: Double(y))
+            setSize(win, width: Double(w), height: Double(h))
+            restored += 1
+        }
+
+        JSONOutput.print(["status": "ok", "message": "Restored \(restored) window positions", "count": restored], json: json)
     }
 }
