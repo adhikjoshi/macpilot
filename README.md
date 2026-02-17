@@ -4,8 +4,6 @@ Programmatic macOS control for AI agents. Everything a human can do via keyboard
 
 Current version: **0.6.0**
 
-![MacPilot Icon](Assets/icon.svg)
-
 ## Quick Start
 
 ```bash
