@@ -145,6 +145,15 @@ struct Screenshot: ParsableCommand {
         guard let windowList = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
+        // First pass: match window title (kCGWindowName)
+        for win in windowList {
+            if let windowTitle = win[kCGWindowName as String] as? String,
+               windowTitle.localizedCaseInsensitiveContains(name),
+               let windowID = win[kCGWindowNumber as String] as? CGWindowID {
+                return windowID
+            }
+        }
+        // Second pass: match app/owner name (kCGWindowOwnerName)
         for win in windowList {
             if let ownerName = win[kCGWindowOwnerName as String] as? String,
                ownerName.localizedCaseInsensitiveContains(name),
