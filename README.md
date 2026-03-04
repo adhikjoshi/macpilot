@@ -2,7 +2,7 @@
 
 Programmatic macOS control for AI agents. Everything a human can do via keyboard + mouse, MacPilot can do programmatically.
 
-Current version: **0.6.0**
+Current version: **0.7.0**
 
 ## Quick Start
 
@@ -33,11 +33,12 @@ macpilot ax-check --json
 # Should show: "trusted": true
 ```
 
-### Menu Bar Icon (NEW in v0.6.0)
-The menu bar icon appears automatically when any macpilot command runs. Click it to see:
+### Menu Bar Icon
+The menu bar icon appears automatically when any macpilot command runs, or when you double-click the app. Click it to see:
 - Recent command activity with timestamps
-- Permission status for all required permissions
+- Permission status (with alert badge when permissions are missing)
 - Quick links to open System Settings
+- Links to GitHub repo and MacPilot Skills
 
 ## OCR + Click Navigation (AI Agent Workflow)
 
@@ -135,7 +136,7 @@ macpilot ui click "Submit"
 
 ## Commands
 
-All commands support `--json` for structured output. **35+ command categories** with 90+ subcommands.
+All commands support `--json` for structured output. **35+ command categories** with 100+ subcommands.
 
 ### Mouse
 ```bash
@@ -165,6 +166,7 @@ macpilot keyboard key "ctrl+right" --json   # switch Space
 ```bash
 macpilot screenshot /tmp/screen.png --json
 macpilot screenshot /tmp/region.png --region 100,100,800,600 --json
+macpilot screenshot /tmp/screen.png --with-permissions --json  # use CGWindowListCreateImage directly
 
 # From background processes:
 open -n -W -a MacPilot.app --args screenshot --output /tmp/screen.png --json
@@ -207,9 +209,11 @@ macpilot ui shortcuts --app Chrome --json  # list shortcuts for specific app
 
 ### OCR (Text Extraction + Screen Coordinates)
 ```bash
-macpilot ocr /tmp/screen.png --json         # extract text from image with coordinates
-macpilot ocr 100 100 800 600 --json         # extract from screen region (x y w h)
-macpilot ocr image.png --language ja --json # custom language
+macpilot ocr scan /tmp/screen.png --json         # extract text from image with coordinates
+macpilot ocr scan 100 100 800 600 --json         # extract from screen region (x y w h)
+macpilot ocr scan image.png --language ja --json  # custom language
+macpilot ocr click "Submit" --json               # find text on screen and click it
+macpilot ocr click "OK" --app Finder --timeout 5 --json  # click text in specific app
 ```
 
 ### Chrome Browser
@@ -254,6 +258,14 @@ macpilot dialog file-save /path/to/dest --json
 macpilot dialog detect --json              # detect if modal dialog is showing
 macpilot dialog dismiss "Don't Save" --json  # dismiss by button name
 macpilot dialog auto-dismiss --json        # smart auto-dismiss (Don't Save > OK > Cancel)
+
+# Wait for any dialog to appear across all apps
+macpilot dialog wait-for --timeout 30 --json
+macpilot dialog wait-for --app Safari --json
+
+# Auto-click the primary/default button of a dialog
+macpilot dialog click-primary --json
+macpilot dialog click-primary --app Finder --json
 ```
 
 **Dialog Framework Approach**: Instead of hardcoded strategies, use `dialog inspect` to understand the dialog structure, then `dialog set-field` / `dialog click-button` / `dialog navigate` to interact. Works across native and Electron apps.
@@ -268,9 +280,23 @@ macpilot chain "cmd+l" "type:url" "sleep:500" "return" --delay 200 --json
 
 ### Clipboard
 ```bash
-macpilot clipboard get --json
-macpilot clipboard set "hello" --json
-macpilot clipboard get --image --output /tmp/clip.png --json
+macpilot clipboard get --json              # read text from clipboard
+macpilot clipboard set "hello" --json      # set clipboard text
+macpilot clipboard image /tmp/clip.png --json  # copy image to clipboard
+macpilot clipboard info --json             # content type, size, preview
+macpilot clipboard types --json            # list all UTI types on clipboard
+macpilot clipboard clear --json            # clear clipboard
+macpilot clipboard paste --json            # simulate Cmd+V
+macpilot clipboard copy file1.txt file2.pdf --json  # copy files to clipboard
+macpilot clipboard save /tmp/saved.png --json       # save clipboard to file
+
+# Clipboard history (background daemon)
+macpilot clipboard history start --json              # start tracking (max 50 items)
+macpilot clipboard history stop --json
+macpilot clipboard history list --json               # show history
+macpilot clipboard history list --limit 5 --json     # last 5 items
+macpilot clipboard history search "keyword" --json   # search history
+macpilot clipboard history clear --json              # delete all history
 ```
 
 ### Shell
@@ -297,7 +323,11 @@ macpilot menubar click Chrome "File > New Window" --json  # click app menu items
 
 ### Notifications
 ```bash
-macpilot notification send "Title" "Body text" --json
+macpilot notification send "Title" "Body text" --json   # send system notification
+macpilot notification list --json                        # list visible notifications
+macpilot notification click --title "Download" --json    # click matching notification
+macpilot notification dismiss --json                     # dismiss top notification
+macpilot notification dismiss --all --json               # dismiss all notifications
 ```
 
 ### Audio
@@ -341,7 +371,13 @@ macpilot system info --json                # CPU, RAM, disk, OS version
 ### Screen Recording
 ```bash
 macpilot screen record start --output /tmp/rec.mov --json
+macpilot screen record start --output /tmp/rec.mov --region 0,0,1920,1080 --json
+macpilot screen record start --output /tmp/rec.mov --window Safari --json
+macpilot screen record start --output /tmp/rec.mov --audio --quality high --fps 60 --json
 macpilot screen record stop --json
+macpilot screen record status --json       # check if recording
+macpilot screen record pause --json        # pause recording
+macpilot screen record resume --json       # resume recording
 ```
 
 ### Dock
@@ -379,7 +415,7 @@ macpilot watch /path/to/dir --json         # watch for file changes
 ### Utility
 ```bash
 macpilot ax-check --json          # verify Accessibility permission
-macpilot --version                # show version (0.6.0)
+macpilot --version                # show version (0.7.0)
 ```
 
 ## Best Practices for AI Agents
@@ -469,7 +505,7 @@ bash scripts/build-app.sh                      # build .app bundle with ad-hoc s
 ## CI / CD
 
 - **CI**: Runs on every PR and merge to main (build + test + .app verification)
-- **Release**: Push a tag (`git tag v0.6.0 && git push --tags`) to auto-create a GitHub Release with .app zip + standalone binary
+- **Release**: Push a tag (`git tag v0.7.0 && git push --tags`) to auto-create a GitHub Release with .app zip + standalone binary
 
 ## Safety
 
