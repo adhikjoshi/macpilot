@@ -328,17 +328,82 @@ private final class IndicatorServerController: NSObject, NSApplicationDelegate, 
         statusItem?.menu = menu
     }
 
+    private var hasMissingPermissions: Bool {
+        !checkAccessibility() || !checkScreenRecording()
+    }
+
     private func updateMenuBarIcon() {
         guard let button = statusItem?.button else { return }
 
         iconPhase.toggle()
-        let symbolName = iconPhase ? "command.circle.fill" : "command.circle"
-        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "MacPilot") {
-            image.isTemplate = false
-            button.image = image
-            button.contentTintColor = NSColor.systemTeal
-        } else {
-            button.title = "MP"
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { [weak self] rect in
+            guard let self else { return false }
+            let filled = self.iconPhase
+            self.drawMenuBarIcon(in: rect, filled: filled, alert: self.hasMissingPermissions)
+            return true
+        }
+        image.isTemplate = false
+        button.image = image
+    }
+
+    private func drawMenuBarIcon(in rect: NSRect, filled: Bool, alert: Bool) {
+        let cx = rect.midX
+        let cy = rect.midY
+        let radius: CGFloat = 7.5
+
+        // Outer ring
+        let ringPath = NSBezierPath(ovalIn: NSRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2))
+        if filled {
+            NSColor.systemTeal.withAlphaComponent(0.25).setFill()
+            ringPath.fill()
+        }
+        NSColor.systemTeal.setStroke()
+        ringPath.lineWidth = 1.5
+        ringPath.stroke()
+
+        // Compass needle (upward arrow)
+        let needle = NSBezierPath()
+        needle.move(to: NSPoint(x: cx, y: cy + 6))      // top
+        needle.line(to: NSPoint(x: cx + 3, y: cy - 2))   // right
+        needle.line(to: NSPoint(x: cx, y: cy))            // center notch
+        needle.line(to: NSPoint(x: cx - 3, y: cy - 2))   // left
+        needle.close()
+        NSColor.systemTeal.setFill()
+        needle.fill()
+
+        // Center dot
+        let dotRadius: CGFloat = 1.5
+        let dot = NSBezierPath(ovalIn: NSRect(x: cx - dotRadius, y: cy - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
+        NSColor.white.withAlphaComponent(0.9).setFill()
+        dot.fill()
+
+        // Crosshair ticks
+        NSColor.systemTeal.withAlphaComponent(0.5).setStroke()
+        let tickPath = NSBezierPath()
+        tickPath.lineWidth = 1.0
+        // Top
+        tickPath.move(to: NSPoint(x: cx, y: cy + radius - 1))
+        tickPath.line(to: NSPoint(x: cx, y: cy + radius + 1.5))
+        // Bottom
+        tickPath.move(to: NSPoint(x: cx, y: cy - radius + 1))
+        tickPath.line(to: NSPoint(x: cx, y: cy - radius - 1.5))
+        // Left
+        tickPath.move(to: NSPoint(x: cx - radius + 1, y: cy))
+        tickPath.line(to: NSPoint(x: cx - radius - 1.5, y: cy))
+        // Right
+        tickPath.move(to: NSPoint(x: cx + radius - 1, y: cy))
+        tickPath.line(to: NSPoint(x: cx + radius + 1.5, y: cy))
+        tickPath.stroke()
+
+        // Alert badge (orange dot) when permissions missing
+        if alert {
+            let badgeRadius: CGFloat = 3.0
+            let badgeX = rect.maxX - badgeRadius - 0.5
+            let badgeY = rect.maxY - badgeRadius - 0.5
+            let badge = NSBezierPath(ovalIn: NSRect(x: badgeX - badgeRadius, y: badgeY - badgeRadius, width: badgeRadius * 2, height: badgeRadius * 2))
+            NSColor.systemOrange.setFill()
+            badge.fill()
         }
     }
 
@@ -350,14 +415,37 @@ private final class IndicatorServerController: NSObject, NSApplicationDelegate, 
         menu.removeAllItems()
 
         // Header
-        let header = NSMenuItem(title: "MacPilot v0.6.0", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "MacPilot v0.7.0", action: nil, keyEquivalent: "")
         header.isEnabled = false
-        let attrTitle = NSAttributedString(string: "MacPilot v0.6.0", attributes: [
+        let attrTitle = NSAttributedString(string: "MacPilot v0.7.0", attributes: [
             .font: NSFont.boldSystemFont(ofSize: 13),
         ])
         header.attributedTitle = attrTitle
         menu.addItem(header)
+
+        // Quick links
+        let githubItem = NSMenuItem(title: "Open GitHub", action: #selector(openGitHub), keyEquivalent: "")
+        githubItem.target = self
+        menu.addItem(githubItem)
+
+        let skillsItem = NSMenuItem(title: "Install MacPilot Skills", action: #selector(openSkills), keyEquivalent: "")
+        skillsItem.target = self
+        menu.addItem(skillsItem)
+
         menu.addItem(NSMenuItem.separator())
+
+        // Permission alert banner if needed
+        if hasMissingPermissions {
+            let alertItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            alertItem.isEnabled = false
+            let alertStr = NSAttributedString(string: "  \u{26A0}\u{FE0F} Missing permissions — restart app after granting", attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.systemOrange,
+            ])
+            alertItem.attributedTitle = alertStr
+            menu.addItem(alertItem)
+            menu.addItem(NSMenuItem.separator())
+        }
 
         // Recent Activity
         let activityHeader = NSMenuItem(title: "Recent Activity", action: nil, keyEquivalent: "")
@@ -395,10 +483,28 @@ private final class IndicatorServerController: NSObject, NSApplicationDelegate, 
         permHeader.isEnabled = false
         menu.addItem(permHeader)
 
-        addPermissionItem("Accessibility", granted: checkAccessibility(), settingsURL: IndicatorSettingsURL.accessibility)
-        addPermissionItem("Screen Recording", granted: checkScreenRecording(), settingsURL: IndicatorSettingsURL.screenRecording)
-        addPermissionItem("Full Disk Access", granted: checkFullDiskAccess(), settingsURL: IndicatorSettingsURL.fullDiskAccess)
-        addPermissionItem("Automation", granted: checkAutomation(), settingsURL: IndicatorSettingsURL.automation)
+        let ax = checkAccessibility()
+        let sr = checkScreenRecording()
+        let fda = checkFullDiskAccess()
+        let auto = checkAutomation()
+
+        addPermissionItem("Accessibility", granted: ax, settingsURL: IndicatorSettingsURL.accessibility)
+        addPermissionItem("Screen Recording", granted: sr, settingsURL: IndicatorSettingsURL.screenRecording)
+        addPermissionItem("Full Disk Access", granted: fda, settingsURL: IndicatorSettingsURL.fullDiskAccess)
+        addPermissionItem("Automation", granted: auto, settingsURL: IndicatorSettingsURL.automation)
+
+        if !ax || !sr || !fda || !auto {
+            let restartNote = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            restartNote.isEnabled = false
+            restartNote.attributedTitle = NSAttributedString(
+                string: "  Restart app after granting permissions",
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: 11),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                ]
+            )
+            menu.addItem(restartNote)
+        }
 
         menu.addItem(NSMenuItem.separator())
 
@@ -453,6 +559,18 @@ private final class IndicatorServerController: NSObject, NSApplicationDelegate, 
         }
     }
 
+    @objc private func openGitHub() {
+        if let url = URL(string: "https://github.com/adhikjoshi/macpilot") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openSkills() {
+        if let url = URL(string: "https://github.com/adhikjoshi/macpilot-skills") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     @objc private func stopIndicator() {
         NSApp.terminate(nil)
     }
@@ -471,16 +589,57 @@ private final class IndicatorServerController: NSObject, NSApplicationDelegate, 
     }
 
     // MARK: - Permission Checks
+    // In-process APIs (AXIsProcessTrusted, CGPreflightScreenCaptureAccess) cache
+    // their result for the process lifetime. To show live status, we read the
+    // TCC database directly for Accessibility and Screen Recording.
 
     private func checkAccessibility() -> Bool {
-        AXIsProcessTrusted()
+        // Try TCC database first for live status
+        if let granted = queryTCCDatabase(service: "kTCCServiceAccessibility") {
+            return granted
+        }
+        // Fallback to in-process API
+        return AXIsProcessTrusted()
     }
 
     private func checkScreenRecording() -> Bool {
+        // Try TCC database first for live status
+        if let granted = queryTCCDatabase(service: "kTCCServiceScreenCapture") {
+            return granted
+        }
+        // Fallback
         if #available(macOS 10.15, *) {
             return CGPreflightScreenCaptureAccess()
         }
         return true
+    }
+
+    /// Read TCC database directly. auth_value: 0=denied, 2=allowed, 3=limited
+    private func queryTCCDatabase(service: String) -> Bool? {
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.macpilot.cli"
+        let dbPath = "/Library/Application Support/com.apple.TCC/TCC.db"
+
+        guard FileManager.default.isReadableFile(atPath: dbPath) else { return nil }
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        task.arguments = [dbPath, "SELECT auth_value FROM access WHERE service='\(service)' AND client='\(bundleID)' LIMIT 1;"]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+            guard task.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard let value = Int(output) else { return nil }
+            return value == 2 || value == 3
+        } catch {
+            return nil
+        }
     }
 
     private func checkFullDiskAccess() -> Bool {

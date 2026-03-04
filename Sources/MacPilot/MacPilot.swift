@@ -6,7 +6,7 @@ struct MacPilot: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "macpilot",
         abstract: "Programmatic macOS control for AI agents",
-        version: "0.6.0",
+        version: "0.7.0",
         subcommands: [
             Click.self,
             DoubleClick.self,
@@ -53,6 +53,19 @@ struct MacPilot: ParsableCommand {
     mutating func validate() throws {
         ensureIndicatorAutoStartIfNeeded()
         sendActivityToIndicator()
+    }
+
+    mutating func run() throws {
+        // When launched with no subcommand (e.g. double-clicking the app),
+        // start the indicator instead of printing help
+        let args = Array(CommandLine.arguments.dropFirst())
+        if args.isEmpty || args.allSatisfy({ $0.hasPrefix("-") }) {
+            var starter = IndicatorStart()
+            starter.json = false
+            try starter.run()
+        } else {
+            throw CleanExit.helpRequest()
+        }
     }
 }
 

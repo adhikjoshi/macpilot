@@ -14,6 +14,7 @@ struct Screenshot: ParsableCommand {
     @Option(name: .long, help: "Output format: png or jpg") var format: String?
     @Flag(name: .long, help: "Capture ALL windows including other Spaces") var allWindows = false
     @Option(name: .long, help: "Display index (0-based)") var display: UInt32?
+    @Flag(name: .long, help: "Use CGWindowListCreateImage (requires Screen Recording permission)") var withPermissions = false
     @Flag(name: .long) var json = false
 
     func run() throws {
@@ -21,7 +22,7 @@ struct Screenshot: ParsableCommand {
         let outputPath = resolvedOutputPath(format: resolvedFormat)
         flashIndicatorIfRunning()
 
-        if allWindows {
+        if allWindows || withPermissions {
             try captureAllWindowsViaCG(outputPath: outputPath, format: resolvedFormat)
             return
         }
@@ -98,7 +99,17 @@ struct Screenshot: ParsableCommand {
     }
 
     private func captureAllWindowsViaCG(outputPath: String, format: String) throws {
-        let image = CGWindowListCreateImage(.null, .optionAll, kCGNullWindowID, .bestResolution)
+        // Determine capture rect
+        var captureRect = CGRect.null
+        if withPermissions, let regionStr = region {
+            let parts = regionStr.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            if parts.count == 4 {
+                captureRect = CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+            }
+        }
+
+        let listOption: CGWindowListOption = allWindows ? .optionAll : .optionOnScreenOnly
+        let image = CGWindowListCreateImage(captureRect, listOption, kCGNullWindowID, .bestResolution)
         guard let cgImage = image else {
             JSONOutput.error("Failed to capture screenshot", json: json)
             throw ExitCode.failure

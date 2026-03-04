@@ -22,6 +22,12 @@ cp "$BINARY_SRC" "$BINARY_DST"
 chmod +x "$BINARY_DST"
 cp "$PLIST_TEMPLATE" "$PLIST_DST"
 
+# Copy app icon if available
+ICON_SRC="$ROOT_DIR/Assets/AppIcon.icns"
+if [[ -f "$ICON_SRC" ]]; then
+  cp "$ICON_SRC" "$APP_PATH/Contents/Resources/AppIcon.icns"
+fi
+
 if [[ -f "$ENTITLEMENTS" ]]; then
   codesign --force --deep --sign "$SIGN_IDENTITY" --entitlements "$ENTITLEMENTS" "$APP_PATH"
 else

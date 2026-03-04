@@ -289,6 +289,8 @@ struct Dialog: ParsableCommand {
             DialogClickButton.self,
             DialogFileOpen.self,
             DialogFileSave.self,
+            DialogWaitFor.self,
+            DialogClickPrimary.self,
         ]
     )
 }
@@ -879,6 +881,171 @@ struct DialogFileSave: ParsableCommand {
             "status": "ok",
             "message": "Requested save to \(resolvedPath)",
             "path": resolvedPath,
+        ], json: json)
+    }
+}
+
+// MARK: - dialog wait-for (NEW: poll for dialog appearance)
+
+struct DialogWaitFor: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "wait-for",
+        abstract: "Wait for a modal dialog to appear"
+    )
+
+    @Option(name: .long, help: "Timeout in seconds") var timeout: Double = 30
+    @Option(name: .long, help: "Only check this app") var app: String?
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if let app = app {
+                // Check specific app
+                if let pid = findAppPID(app) {
+                    let appElement = AXUIElementCreateApplication(pid)
+                    if hasDialog(appElement) {
+                        let elements = scanDialogElements(appElement, maxDepth: 10)
+                        let buttons = elements.filter { ($0["role"] as? String ?? "").contains("Button") }
+                            .compactMap { $0["title"] as? String }.filter { !$0.isEmpty }
+                        let sheets = elements.filter { ($0["role"] as? String ?? "") == "AXSheet" }
+
+                        JSONOutput.print([
+                            "status": "ok",
+                            "found": true,
+                            "app": app,
+                            "buttons": buttons,
+                            "sheetCount": sheets.count,
+                            "message": "Dialog detected in \(app)",
+                        ], json: json)
+                        return
+                    }
+                }
+            } else {
+                // Scan all apps
+                for runningApp in NSWorkspace.shared.runningApplications {
+                    guard runningApp.activationPolicy == .regular else { continue }
+                    let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+                    if hasDialog(appElement) {
+                        let appName = runningApp.localizedName ?? "Unknown"
+                        let elements = scanDialogElements(appElement, maxDepth: 10)
+                        let buttons = elements.filter { ($0["role"] as? String ?? "").contains("Button") }
+                            .compactMap { $0["title"] as? String }.filter { !$0.isEmpty }
+
+                        JSONOutput.print([
+                            "status": "ok",
+                            "found": true,
+                            "app": appName,
+                            "buttons": buttons,
+                            "message": "Dialog detected in \(appName)",
+                        ], json: json)
+                        return
+                    }
+                }
+            }
+
+            usleep(250_000)
+        }
+
+        JSONOutput.print([
+            "status": "ok",
+            "found": false,
+            "message": "No dialog appeared within \(Int(timeout))s",
+        ], json: json)
+    }
+}
+
+// MARK: - dialog click-primary (NEW: click the default/primary button)
+
+struct DialogClickPrimary: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "click-primary",
+        abstract: "Click the primary/default button in the current dialog"
+    )
+
+    @Option(name: .long, help: "Only check this app") var app: String?
+    @Flag(name: .long) var json = false
+
+    func run() throws {
+        try requireActiveUserSession(json: json, actionDescription: "dialog click-primary")
+        flashIndicatorIfRunning()
+
+        // Find the app with a dialog
+        var targetApp: AXUIElement?
+        var appName = ""
+
+        if let name = app {
+            if let pid = findAppPID(name) {
+                targetApp = AXUIElementCreateApplication(pid)
+                appName = name
+            }
+        } else {
+            targetApp = findAppWithDialog()
+            if let frontmost = NSWorkspace.shared.frontmostApplication {
+                appName = frontmost.localizedName ?? ""
+            }
+        }
+
+        guard let appElement = targetApp else {
+            JSONOutput.error("No app with dialog found", json: json)
+            throw ExitCode.failure
+        }
+
+        // Try AXDefaultButton first
+        var defaultButtonValue: AnyObject?
+        // Check windows for AXDefaultButton
+        var foundButton: AXUIElement?
+        var foundButtonTitle = ""
+
+        if let windows = getChildren(appElement) {
+            for window in windows {
+                if AXUIElementCopyAttributeValue(window, kAXDefaultButtonAttribute as CFString, &defaultButtonValue) == .success,
+                   let btn = defaultButtonValue {
+                    foundButton = (btn as! AXUIElement)
+                    foundButtonTitle = getAttr(foundButton!, kAXTitleAttribute) ?? "OK"
+                    break
+                }
+            }
+        }
+
+        // Fallback: search for common primary button labels
+        if foundButton == nil {
+            let primaryLabels = ["OK", "Allow", "Open", "Save", "Continue", "Yes", "Done", "Confirm", "Unlock", "Accept", "Submit", "Connect"]
+            for label in primaryLabels {
+                if let btn = findDialogButtonElement(appElement, label: label) {
+                    foundButton = btn
+                    foundButtonTitle = getAttr(btn, kAXTitleAttribute) ?? label
+                    break
+                }
+            }
+        }
+
+        guard let button = foundButton else {
+            let allButtons = scanDialogElements(appElement, maxDepth: 12).filter {
+                ($0["role"] as? String ?? "").contains("Button")
+            }.compactMap { $0["title"] as? String }.filter { !$0.isEmpty }
+
+            JSONOutput.error(
+                allButtons.isEmpty
+                    ? "No primary button found in dialog"
+                    : "No primary button found. Available: \(allButtons.joined(separator: ", "))",
+                json: json
+            )
+            throw ExitCode.failure
+        }
+
+        let result = AXUIElementPerformAction(button, kAXPressAction as CFString)
+        guard result == .success else {
+            JSONOutput.error("Failed to click '\(foundButtonTitle)' (AX error: \(result.rawValue))", json: json)
+            throw ExitCode.failure
+        }
+
+        JSONOutput.print([
+            "status": "ok",
+            "message": "Clicked primary button '\(foundButtonTitle)'",
+            "button": foundButtonTitle,
+            "app": appName,
         ], json: json)
     }
 }
